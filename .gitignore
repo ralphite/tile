@@ -1,0 +1,4 @@
+.build/
+Tile.app/
+.DS_Store
+qa-artifacts/
