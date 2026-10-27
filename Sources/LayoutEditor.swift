@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class LayoutEditor: NSWindowController, NSWindowDelegate {
     private let store: LayoutStore
+    private let manager: WindowManager
     private let onClose: () -> Void
     private var presets: [LayoutPreset]
     private let chooser = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -13,12 +14,16 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate {
     private let message = NSTextField(wrappingLabelWithString: "")
     private let deleteButton = NSButton(title: "删除布局", target: nil, action: nil)
     private let saveButton = NSButton(title: "保存", target: nil, action: nil)
+    private let permissionLabel = NSTextField(labelWithString: "")
+    private let permissionHint = NSTextField(wrappingLabelWithString: "")
+    private let permissionButton = NSButton(title: "打开辅助功能设置…", target: nil, action: nil)
 
-    init(store: LayoutStore, onClose: @escaping () -> Void) {
+    init(store: LayoutStore, manager: WindowManager, onClose: @escaping () -> Void) {
         self.store = store
+        self.manager = manager
         self.onClose = onClose
         self.presets = store.configuration.presets
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 370),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 510),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Tile · 布局配置"
         window.isReleasedWhenClosed = false
@@ -36,6 +41,24 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate {
             root.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -24),
             root.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 24)
         ])
+        permissionLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        permissionHint.font = .systemFont(ofSize: 12)
+        permissionHint.textColor = .secondaryLabelColor
+        permissionHint.isSelectable = true
+        permissionButton.target = self
+        permissionButton.action = #selector(openPermissions)
+        let checkButton = NSButton(title: "检查权限", target: self, action: #selector(refreshPermission))
+        let permissionActions = NSStackView(views: [permissionButton, checkButton])
+        permissionActions.spacing = 8
+        root.addArrangedSubview(permissionLabel)
+        root.addArrangedSubview(permissionHint)
+        root.addArrangedSubview(permissionActions)
+        permissionLabel.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
+        permissionHint.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
+        let divider = NSBox()
+        divider.boxType = .separator
+        root.addArrangedSubview(divider)
+        divider.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         chooser.target = self
         chooser.action = #selector(selectionChanged)
         root.addArrangedSubview(row("布局", chooser))
@@ -67,6 +90,7 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate {
         }
         gap.stringValue = store.configuration.gap.formatted(.number.precision(.fractionLength(0...3)).locale(Locale(identifier: "en_US_POSIX")))
         reloadChooser(select: 0)
+        refreshPermission()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -180,5 +204,20 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate {
         } catch { message.stringValue = "删除失败：\(error.localizedDescription)" }
     }
 
+    @objc private func openPermissions() {
+        manager.requestPermission()
+    }
+
+    @objc private func refreshPermission() {
+        let trusted = manager.isTrusted
+        permissionLabel.stringValue = trusted ? "辅助功能已开启" : "Tile 尚未检测到辅助功能授权"
+        permissionHint.stringValue = trusted
+            ? (manager.hasWindowBridge ? "可以从菜单栏选择布局排列窗口。" : "当前 macOS 无法准确识别窗口，请检查兼容性。")
+            : "若 Tile 开关已经开启，请移除旧条目，再添加当前应用。\n当前应用：\(Bundle.main.bundlePath)"
+        NSLog("Tile permission check: trusted=%@, windowBridge=%@, pid=%d, app=%@",
+              String(trusted), String(manager.hasWindowBridge), ProcessInfo.processInfo.processIdentifier, Bundle.main.bundlePath)
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) { refreshPermission() }
     func windowWillClose(_ notification: Notification) { onClose() }
 }

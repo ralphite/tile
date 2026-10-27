@@ -34,12 +34,17 @@ final class WindowManager {
     }
 
     private var originals: [OriginalWindow] = []
+    private var hasRequestedPermission = false
     var canUndo: Bool { !originals.isEmpty }
     var isTrusted: Bool { AXIsProcessTrusted() }
+    var hasWindowBridge: Bool { windowIDFunction != nil }
 
     func requestPermission() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+        if !hasRequestedPermission && !isTrusted {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+            hasRequestedPermission = true
+        }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }

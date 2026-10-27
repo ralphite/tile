@@ -91,7 +91,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func arrange(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
               let preset = store.configuration.presets.first(where: { $0.id == id }) else { return }
-        guard manager.isTrusted else { authorize(); return }
+        guard manager.isTrusted else {
+            lastResult = "Tile 尚未检测到辅助功能授权"
+            configure()
+            return
+        }
         // Defer until the status menu has closed, so its window is never a candidate.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             self.lastResult = self.manager.arrange(preset, gap: self.store.configuration.gap)
@@ -112,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func configure() {
         if editor == nil {
-            editor = LayoutEditor(store: store) { [weak self] in self?.editor = nil }
+            editor = LayoutEditor(store: store, manager: manager) { [weak self] in self?.editor = nil }
         }
         editor?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
