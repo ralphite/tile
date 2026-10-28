@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lastResult = store.loadError
         if CommandLine.arguments.contains("--show-menu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.statusItem.button?.performClick(nil) }
-        } else if !UserDefaults.standard.bool(forKey: "hasLaunched") {
+        } else if !manager.isTrusted || !UserDefaults.standard.bool(forKey: "hasLaunched") {
             configure()
             UserDefaults.standard.set(true, forKey: "hasLaunched")
         }
