@@ -92,17 +92,23 @@ final class WindowManager {
                     skipped += 1
                     continue
                 }
+                if approximatelyEqual(before, target) {
+                    placed += 1
+                    continue
+                }
                 let saved = OriginalWindow(id: window.visible.id, pid: window.visible.pid,
                                            element: window.element, frame: before)
-                let wrote = setFrame(target, on: window.element)
+                let write = setFrame(target, on: window.element)
                 let actual = frame(of: window.element)
-                // Even a partial write must remain undoable.
-                if actual == nil || !approximatelyEqual(actual!, before) {
+                // Apps may apply an accepted AX write after the first readback.
+                // Keep its original frame even when this read still looks unchanged.
+                // A timeout is also uncertain: the receiving app may apply it later.
+                if write.mayHaveChanged || actual == nil || !approximatelyEqual(actual!, before) {
                     nextOriginals.append(saved)
                 }
                 if let actual, approximatelyEqual(actual, target) {
                     placed += 1
-                } else if wrote {
+                } else if write.fullySubmitted {
                     limited += 1
                 } else {
                     failed += 1
@@ -237,15 +243,19 @@ final class WindowManager {
         return CGRect(origin: position, size: size)
     }
 
-    private func setFrame(_ frame: CGRect, on element: AXUIElement) -> Bool {
+    private func setFrame(_ frame: CGRect, on element: AXUIElement) -> (fullySubmitted: Bool, mayHaveChanged: Bool) {
         var size = frame.size
         var position = frame.origin
-        guard let sizeValue = AXValueCreate(.cgSize, &size), let positionValue = AXValueCreate(.cgPoint, &position) else { return false }
-        // Shrink before moving so an old large frame does not push the target
-        // position back inside a screen. Apps still enforce their own minimums.
+        guard let sizeValue = AXValueCreate(.cgSize, &size), let positionValue = AXValueCreate(.cgPoint, &position) else { return (false, false) }
+        // Move first so expansion is not clipped by the old origin near an edge.
+        // An old large frame may clamp this first move; repeat after resizing.
+        let initialMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
         let resized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
-        let moved = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-        return resized == .success && moved == .success
+        let finalMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+        // The final size and move determine submission success. Any of the three
+        // writes may change the window, so partial/uncertain writes remain undoable.
+        let mayHaveChanged = [initialMove, resized, finalMove].contains { $0 == .success || $0 == .cannotComplete }
+        return (resized == .success && finalMove == .success, mayHaveChanged)
     }
 
     private func axFrame(_ rect: CGRect, primaryTop: CGFloat) -> CGRect {

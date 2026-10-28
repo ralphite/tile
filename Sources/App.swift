@@ -116,7 +116,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func configure() {
         if editor == nil {
-            editor = LayoutEditor(store: store, manager: manager) { [weak self] in self?.editor = nil }
+            editor = LayoutEditor(store: store, manager: manager, onArrangeMenu: { [weak self] sender in
+                guard let self else { return }
+                let menu = NSMenu()
+                menu.autoenablesItems = false
+                menu.delegate = self
+                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
+            }) { [weak self] in self?.editor = nil }
         }
         editor?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)

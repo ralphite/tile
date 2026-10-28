@@ -5,6 +5,7 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate {
     private let store: LayoutStore
     private let manager: WindowManager
     private let onClose: () -> Void
+    private let onArrangeMenu: (NSView) -> Void
     private var presets: [LayoutPreset]
     private let chooser = NSPopUpButton(frame: .zero, pullsDown: false)
     private let nameField = NSTextField(string: "")
@@ -18,10 +19,12 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate {
     private let permissionHint = NSTextField(wrappingLabelWithString: "")
     private let permissionButton = NSButton(title: "打开辅助功能设置…", target: nil, action: nil)
 
-    init(store: LayoutStore, manager: WindowManager, onClose: @escaping () -> Void) {
+    init(store: LayoutStore, manager: WindowManager, onArrangeMenu: @escaping (NSView) -> Void,
+         onClose: @escaping () -> Void) {
         self.store = store
         self.manager = manager
         self.onClose = onClose
+        self.onArrangeMenu = onArrangeMenu
         self.presets = store.configuration.presets
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 510),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -80,6 +83,7 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate {
         saveButton.action = #selector(savePreset)
         saveButton.keyEquivalent = "\r"
         buttons.addArrangedSubview(deleteButton)
+        buttons.addArrangedSubview(NSButton(title: "排列窗口…", target: self, action: #selector(showArrangeMenu(_:))))
         let spacer = NSView()
         buttons.addArrangedSubview(spacer)
         buttons.addArrangedSubview(saveButton)
@@ -206,6 +210,10 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate {
 
     @objc private func openPermissions() {
         manager.requestPermission()
+    }
+
+    @objc private func showArrangeMenu(_ sender: NSButton) {
+        onArrangeMenu(sender)
     }
 
     @objc private func refreshPermission() {
