@@ -1,45 +1,69 @@
-# 本机验收
+# Verification status
 
-日期：2026-10-27。显示器：3840 × 2160；可用区域的 AX 坐标为 (0, 30, 3840, 2052)，间距 8 pt。
+This record separates actual native UI checks from geometry tests and unfinished acceptance checks. Local evidence is kept under the ignored `qa-artifacts/` directory; it is not included in the public repository because it can contain local window information.
 
-通过真实配置窗口打开排列菜单，使用独立 Chrome-Agent 的测试窗口。13 个临时窗口位于当前桌面最前方，避免排列已有工作窗口。每项测试后恢复，再逐窗比较位置和大小。
+## Environment
 
-| 布局 | 实际排列数量 | 网格坐标准确 | 超出格数保持原位 | 恢复位置和大小 |
-| --- | ---: | --- | --- | --- |
-| 2 × 3 | 6 | 通过 | 通过 | 通过 |
-| 3 × 3 | 9 | 通过 | 通过 | 通过 |
-| 3 × 4 | 12 | 通过 | 通过 | 通过 |
-| 新增 1 × 2 | 2 | 通过，两窗均为 1908 × 2036 | 通过 | 通过 |
+- Apple silicon Mac; 3840 × 2160 display.
+- Usable display frame in Accessibility coordinates: `(0, 30, 3840, 2052)`.
+- Native AppKit configuration window and its shared arrangement menu.
+- Dedicated Chrome-Agent test windows. Existing personal browser windows were not used for the capture test.
 
-- 实测发现 Chrome 在旧位置先放大时会截断高度；已调整为先定位、缩放、再校正位置，复测通过。
-- 构建和重新启动后，辅助功能授权仍然有效，无需重复授权。
-- 已有 Chrome-Agent 窗口的坐标和尺寸保持不变；临时测试窗口全部关闭。
-- `scripts/test.sh` 的布局、分区、坐标和配置序列化测试通过。
-- 实测坐标保存在本地忽略目录 `qa-artifacts/chrome-window-qa.json`。
+## v0.3.0 — 2026-10-28
 
-## 正常连续切换复测
+| Check | Result | Evidence / boundary |
+| --- | --- | --- |
+| Capture window picker | Passed | Native UI lists eligible windows, supports deselection, and previews selected regions. |
+| Reject overlapping selection | Passed | Overlap shown in the preview and message; Save disabled. |
+| Capture manually placed rectangles | Passed | Selected three test windows; saved a new preset without overwriting existing presets. |
+| Save → restart → apply | Passed | Moved all test windows, restarted Tile, applied the saved layout, and read actual Chrome bounds. |
+| Captured geometry | Passed | Restored the set `(50,80,900,850)`, `(1000,80,1400,420)`, `(1000,520,1400,500)` exactly. Window identities can occupy different regions, as intended. |
+| Configuration contents | Passed | Saved geometry only; no application bindings or window titles. |
+| Accessibility after rebuild | Passed | Stable signing retained existing permission. |
+| Automated geometry and store checks | Passed before final English text update | Capture precision, negative-origin displays, empty space, overlap rejection, move/resize classification, legacy migration, backups, and persistence. |
+| Final English build | Built and signed | Reopened for normal use. No final English UI acceptance pass yet. |
+| Real-mouse drag snapping | **Pending** | The UI automation's app-directed drag generated no events in the global monitor; a physical-mouse gesture was not available. Do not count the simulated drag as a successful test. |
+| Manual resize while snapping is enabled | **Pending** | Classification logic tested; native interaction remains unverified. |
+| Snapping-enabled continuous layout switching | **Incomplete** | Session paused before the full sequence completed. Earlier v0.2.0 normal switching results are below. |
 
-上一轮每项排列后先恢复，未覆盖用户连续选择不同布局的正常流程。后续按 **2×3 → 3×3 → 3×4** 连续切换三轮，中间不恢复、不重新创建菜单，共九次点击。
+Window-interaction testing was paused at the user's request so the computer could be used. Only task-created Chrome test windows were closed; Tile was reopened for normal use. Remaining interaction checks were scheduled once for after 02:00 local time. No repeating test or polling loop was created.
 
-- 修复：菜单结构重建改到 AppKit 的 `menuNeedsUpdate`；不再在 `menuWillOpen` 中增删菜单项。依据：[Apple 的回调说明](https://developer.apple.com/documentation/appkit/nsmenudelegate/menuWillOpen(_:))。
-- 修复：移除排列与恢复操作的延迟队列；点击处理完成时窗口结果已可读取，重新打开菜单不再显示上一轮计数。
-- 配置入口复用菜单栏的同一个 `NSMenu` 对象，避免每次新建菜单掩盖重复使用时的问题。
-- 12 个真实 Chrome 测试窗口，九次点击后立即逐窗核对坐标、尺寸和最新菜单计数，全部通过。2×3、3×3、3×4 每轮分别确认 6、9、12 个窗口。
-- 证据：`qa-artifacts/consecutive-switching-after.json`。修复版已重建并运行，测试窗口全部关闭。
+Local evidence: `capture-layout.png`, `capture-roundtrip.json`.
 
-尚未完成：新建普通虚拟桌面及跨 Space 隔离的端到端验收。当前桌面控制工具无法读取 Mission Control 界面，因此未将代码审查结果冒充跨桌面实测。菜单栏图标的直接点击也未由工具验证；上述测试通过配置窗口打开相同的菜单和处理函数。
+## v0.2.0 — 2026-10-27
 
-## 0.2.0 自定义矩形与零间距
+- Created and saved the left-half / upper-right-third / lower-right-two-thirds layout through the native editor.
+- Edited dimensions, added a fourth region, and saved a separate copy. The original three-region preset stayed intact.
+- Restarted the app and verified that both presets persisted.
+- Entered an overlapping region, observed the disabled Save state, then corrected it.
+- With 12 real Chrome test windows, continuously applied: custom three-region → 2×3 → 3×3 → 3×4 → custom four-region → custom three-region.
+- Verified actual positions and sizes, zero internal gaps, unchanged overflow windows, menu results, and restoration of the preceding arrangement.
+- Found Chrome refusing some resizes at the Dock edge; a single conditional 1-point bottom-edge retry fixed the observed behavior. This outer reserve is documented.
+- Verified version-2 configuration migration preserved old presets and IDs, wrote an exact backup, and changed gap to zero.
 
-实际数据位置仍为 `~/Library/Application Support/Tile/layouts.json`。升级后四个原布局及其 ID 均保留，版本为 2、gap 为 0；同目录生成一份原始配置备份。
+Local evidence: `regions-zero-gap-fixed.json`, `regions-editor.png`.
 
-- 原生界面新建并保存「左半屏＋右侧上下」：左 1/2，右上 1/3、右下 2/3。
-- 正常键盘输入修改高度、添加第四个矩形、编辑宽高并另存为「四区域」；原三窗口配置保持不变。复制、粘贴、全选使用标准编辑菜单。
-- 重启后两个自定义布局均可从菜单选择，原示例左侧仍为完整高度，四区域副本左侧分上下两块。
-- 实际输入使两个区域重叠时显示错误并禁用保存；改回合法值恢复保存。
-- 12 个真实 Chrome 测试窗口连续执行：自定义三区 → 2×3 → 3×3 → 3×4 → 自定义四区 → 自定义三区。逐窗验证位置和尺寸、相邻边界零间距、超额窗口不动、菜单计数，共六次通过。
-- 实测发现 Chrome 拒绝部分恰好触及 Dock 边界的缩放，底行保留旧的 700 pt 高度；加入仅在此情况下生效的一次边界重试后复测通过。Chrome 保留的 1 pt 外部系统边界明确记录，不算作内部区域间距。
-- 连续切换后恢复上一个布局通过；所有测试窗口已关闭。
-- 自动测试通过：三区比例、零间距取整、允许留白、拒绝重叠/越界、旧配置迁移和原文备份、自定义配置保存重开。
+## Earlier baseline
 
-本地证据：`qa-artifacts/regions-zero-gap-fixed.json`、`qa-artifacts/regions-editor.png`。拖动真实窗口吸附及保存当前窗口布局按本阶段约定未实现。
+- 2×3, 3×3, 3×4 and 1×2 arrangement, capacity overflow, and restore passed with real Chrome windows.
+- Nine consecutive 2×3 → 3×3 → 3×4 selections passed after moving menu rebuilding to `menuNeedsUpdate` and removing deferred arrangement commands.
+- Position → size → position writes fixed window expansion being clipped at the old origin.
+
+## Still unverified
+
+- Creating a separate ordinary Space and proving cross-Space isolation end to end.
+- Multiple physical displays, display removal during an open capture picker, and display scaling changes.
+- Direct menu-bar icon activation by the automation tool. Tested arrangement commands used the same menu from the editor.
+- Physical-mouse drag preview, dropping into different regions, dropping into blank space, disabling snapping, and resize exclusion.
+- Gatekeeper installation on a clean Mac, Intel runtime behavior, and notarization (not provided).
+
+## Next native acceptance pass
+
+1. Use only task-created windows and preserve the user's existing windows.
+2. Enable snapping and physically drag a window to two differently sized regions. Check actual bounds and restore.
+3. Resize without snapping, disable the mode, and verify a free move.
+4. Capture a non-overlapping selection, restart, and apply the saved preset.
+5. Continuously choose 2×3, 3×3 and 3×4 with enough test windows; inspect each result.
+6. Close only task-created windows. Leave Tile running for the user, with no test overlay or unintended test mode.
+
+If the available tool cannot deliver physical/global mouse events, record that limitation and finish the other checks; do not manufacture a passing result or repeatedly replay the same ineffective gesture.

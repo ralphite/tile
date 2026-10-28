@@ -4,6 +4,18 @@ import Darwin
 
 @MainActor
 final class WindowManager {
+    struct WindowReference {
+        fileprivate let id: CGWindowID
+        fileprivate let pid: pid_t
+        fileprivate let element: AXUIElement
+        let originalFrame: CGRect
+    }
+
+    struct CaptureWindow {
+        let id: CGWindowID
+        let title: String
+        let frame: CGRect
+    }
     private typealias WindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> Int32
 
     // macOS has no public AX-to-CGWindowID bridge. This local utility uses the
@@ -39,6 +51,53 @@ final class WindowManager {
     var isTrusted: Bool { AXIsProcessTrusted() }
     var hasWindowBridge: Bool { windowIDFunction != nil }
 
+    func dragWindow(at point: CGPoint) -> WindowReference? {
+        guard isTrusted, hasWindowBridge,
+              let visible = visibleWindows().first(where: { $0.bounds.contains(point) }) else { return nil }
+        let app = AXUIElementCreateApplication(visible.pid)
+        AXUIElementSetMessagingTimeout(app, 0.08)
+        guard let windows = attribute(app, kAXWindowsAttribute as CFString) as? [AXUIElement],
+              let element = windows.first(where: { windowID(of: $0) == visible.id }) else { return nil }
+        AXUIElementSetMessagingTimeout(element, 0.08)
+        guard eligible(element, pid: visible.pid), let bounds = frame(of: element) else { return nil }
+        return WindowReference(id: visible.id, pid: visible.pid, element: element, originalFrame: bounds)
+    }
+
+    func currentFrame(of window: WindowReference) -> CGRect? {
+        guard windowID(of: window.element) == window.id else { return nil }
+        return frame(of: window.element)
+    }
+
+    func snap(_ window: WindowReference, to target: CGRect) -> String? {
+        guard isTrusted, let visible = visibleWindows().first(where: { $0.id == window.id && $0.pid == window.pid }),
+              stillEligible(ManagedWindow(visible: visible, element: window.element)) else { return nil }
+        let write = setFrame(target, on: window.element)
+        if write.mayHaveChanged {
+            originals = [OriginalWindow(id: window.id, pid: window.pid, element: window.element, frame: window.originalFrame)]
+        }
+        if let actual = frame(of: window.element), approximatelyEqual(actual, target) { return "Window snapped. Use Restore Last Arrangement to undo." }
+        return write.fullySubmitted ? "Window moved, but the app limited its size." : "Could not snap the window. Use Restore Last Arrangement if it moved."
+    }
+
+    func captureWindows(on screen: NSScreen) -> [CaptureWindow] {
+        guard isTrusted, hasWindowBridge, let primary = NSScreen.screens.first else { return [] }
+        let screens = NSScreen.screens
+        let areas = screens.map { axFrame($0.frame, primaryTop: primary.frame.maxY) }
+        guard let screenIndex = screens.firstIndex(of: screen) else { return [] }
+        return managedWindows().compactMap { window in
+            let intersections = areas.map { intersectionArea($0, window.visible.bounds) }
+            guard intersections.indices.max(by: { intersections[$0] < intersections[$1] }) == screenIndex,
+                  stillEligible(window), let bounds = frame(of: window.element) else { return nil }
+            let appName = NSRunningApplication(processIdentifier: window.visible.pid)?.localizedName ?? "App"
+            let title = attribute(window.element, kAXTitleAttribute as CFString) as? String ?? ""
+            return CaptureWindow(id: window.visible.id, title: title.isEmpty ? appName : "\(appName) · \(title)", frame: bounds)
+        }
+    }
+
+    func usableFrame(of screen: NSScreen) -> CGRect {
+        axFrame(screen.visibleFrame, primaryTop: NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY)
+    }
+
     func requestPermission() {
         if !hasRequestedPermission && !isTrusted {
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -56,15 +115,15 @@ final class WindowManager {
     }
 
     func arrange(_ preset: LayoutPreset, gap: CGFloat) -> String {
-        guard isTrusted else { return "请先在系统设置中允许 Tile 使用辅助功能。" }
-        guard windowIDFunction != nil else { return "当前 macOS 无法准确识别窗口，未移动任何窗口。" }
-        guard preset.layout.capacity > 0 else { return "此布局没有可用格子。" }
+        guard isTrusted else { return "Allow Tile in System Settings > Privacy & Security > Accessibility." }
+        guard windowIDFunction != nil else { return "Window identification is unavailable on this macOS version. No windows were moved." }
+        guard preset.layout.capacity > 0 else { return "This layout has no usable regions." }
         let screens = NSScreen.screens
-        guard let primary = screens.first else { return "没有可用显示器。" }
+        guard let primary = screens.first else { return "No display is available." }
         let screenFrames = screens.map { axFrame($0.frame, primaryTop: primary.frame.maxY) }
         let cells = screens.map { preset.layout.cellFrames(in: axFrame($0.visibleFrame, primaryTop: primary.frame.maxY), gap: gap) }
         let windows = managedWindows()
-        guard !windows.isEmpty else { return "当前桌面没有可排列的普通窗口。" }
+        guard !windows.isEmpty else { return "No eligible windows on the current desktop." }
 
         var grouped = Array(repeating: [ManagedWindow](), count: screens.count)
         var skipped = 0
@@ -116,18 +175,18 @@ final class WindowManager {
             }
         }
         if !nextOriginals.isEmpty { originals = nextOriginals }
-        var details = ["已排列 \(placed) 个窗口"]
-        if limited > 0 { details.append("\(limited) 个受窗口尺寸或位置限制") }
-        if overflow > 0 { details.append("\(overflow) 个超出格数，保留原位") }
-        if skipped > 0 { details.append("\(skipped) 个状态已变化，已跳过") }
-        if failed > 0 { details.append("\(failed) 个操作失败") }
-        return details.joined(separator: "；") + "。"
+        var details = ["Arranged \(placed) windows"]
+        if limited > 0 { details.append("\(limited) limited by app size or position constraints") }
+        if overflow > 0 { details.append("\(overflow) beyond capacity, left unchanged") }
+        if skipped > 0 { details.append("\(skipped) skipped after their state changed") }
+        if failed > 0 { details.append("\(failed) failed") }
+        return details.joined(separator: "; ") + "."
     }
 
     func undo() -> String {
-        guard isTrusted else { return "请先允许 Tile 使用辅助功能。" }
-        guard windowIDFunction != nil else { return "当前 macOS 无法准确识别窗口，未移动任何窗口。" }
-        guard !originals.isEmpty else { return "没有可以恢复的排列。" }
+        guard isTrusted else { return "Allow Tile to use Accessibility first." }
+        guard windowIDFunction != nil else { return "Window identification is unavailable on this macOS version. No windows were moved." }
+        guard !originals.isEmpty else { return "No arrangement to restore." }
         var restored = 0
         var unavailable = 0
         var remaining: [OriginalWindow] = []
@@ -161,8 +220,8 @@ final class WindowManager {
             }
         }
         originals = remaining
-        let suffix = unavailable > 0 ? "；\(unavailable) 个不在当前桌面、已关闭或受限制，未恢复" : ""
-        return "已恢复 \(restored) 个窗口\(suffix)。"
+        let suffix = unavailable > 0 ? "; \(unavailable) on another desktop, closed, or restricted were not restored" : ""
+        return "Restored \(restored) windows\(suffix)."
     }
 
     private func managedWindows() -> [ManagedWindow] {

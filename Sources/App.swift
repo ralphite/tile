@@ -6,19 +6,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let store = LayoutStore()
     private let manager = WindowManager()
     private var editor: LayoutEditor?
+    private var capture: CaptureLayoutController?
     private var lastResult: String?
+    private var selectedPresetID = UserDefaults.standard.string(forKey: "snapPresetID")
+    private lazy var snapper = SnapController(manager: manager) { [weak self] result in self?.report(result) }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         installEditingMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "Tile · 排列窗口")
-        statusItem.button?.toolTip = "Tile · 排列当前桌面的窗口"
+        statusItem.button?.image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "Tile · Arrange Windows")
+        statusItem.button?.toolTip = "Tile · Arrange windows on the current desktop"
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
         statusItem.menu = menu
         lastResult = store.loadError
+        store.onChange = { [weak self] in
+            self?.synchronizeSnapPreset()
+            self?.editor?.refreshPresets()
+        }
         updateMenu(menu)
         if CommandLine.arguments.contains("--show-menu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.statusItem.button?.performClick(nil) }
@@ -32,14 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let main = NSMenu()
         let applicationItem = NSMenuItem()
         let applicationMenu = NSMenu(title: "Tile")
-        let quit = applicationMenu.addItem(withTitle: "退出 Tile", action: #selector(quit), keyEquivalent: "q")
+        let quit = applicationMenu.addItem(withTitle: "Quit Tile", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         applicationItem.submenu = applicationMenu
         main.addItem(applicationItem)
-        let editItem = NSMenuItem(title: "编辑", action: nil, keyEquivalent: "")
-        let edit = NSMenu(title: "编辑")
-        for (title, selector, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"),
-                                       ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        let edit = NSMenu(title: "Edit")
+        for (title, selector, key) in [("Undo", "undo:", "z"), ("Cut", "cut:", "x"),
+                                       ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
             edit.addItem(withTitle: title, action: NSSelectorFromString(selector), keyEquivalent: key)
         }
         editItem.submenu = edit; main.addItem(editItem)
@@ -56,18 +63,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateMenu(_ menu: NSMenu) {
+        synchronizeSnapPreset()
         menu.removeAllItems()
-        let header = NSMenuItem(title: "Tile · 当前桌面", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Tile · Current Desktop", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         if !manager.isTrusted {
-            add("授权辅助功能…", action: #selector(authorize), to: menu)
+            add("Allow Accessibility…", action: #selector(authorize), to: menu)
         }
         menu.addItem(.separator())
         for preset in store.configuration.presets {
             let title: String
             if case let .grid(rows, columns) = preset.layout {
-                let dimensions = "\(rows) 行 × \(columns) 列"
+                let dimensions = "\(rows) rows × \(columns) columns"
                 title = preset.name == "\(rows) × \(columns)" ? dimensions : "\(preset.name)  ·  \(dimensions)"
             } else {
                 title = preset.name
@@ -79,9 +87,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let undo = add("恢复上次排列", action: #selector(undo), to: menu)
+        let snapLayout = NSMenuItem(title: "Snap Layout: \(selectedPreset?.name ?? "None")", action: nil, keyEquivalent: "")
+        let choices = NSMenu(); choices.autoenablesItems = false
+        for preset in store.configuration.presets {
+            let item = NSMenuItem(title: preset.name, action: #selector(selectSnapLayout(_:)), keyEquivalent: "")
+            item.target = self; item.representedObject = preset.id
+            item.state = preset.id == selectedPreset?.id ? .on : .off
+            item.image = preview(preset.layout); choices.addItem(item)
+        }
+        snapLayout.submenu = choices; menu.addItem(snapLayout)
+        add(snapper.isEnabled ? "Disable Drag Snapping" : "Enable Drag Snapping", action: #selector(toggleSnapping), to: menu)
+        menu.addItem(.separator())
+        let undo = add("Restore Last Arrangement", action: #selector(undo), to: menu)
         undo.isEnabled = manager.canUndo
-        add("布局配置…", action: #selector(configure), to: menu)
+        add("Save Current Windows as Layout…", action: #selector(captureLayout), to: menu)
+        add("Edit Layouts…", action: #selector(configure), to: menu)
         if let lastResult {
             menu.addItem(.separator())
             let item = NSMenuItem(title: lastResult, action: nil, keyEquivalent: "")
@@ -89,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        add("退出 Tile", action: #selector(quit), to: menu)
+        add("Quit Tile", action: #selector(quit), to: menu)
     }
 
     @discardableResult
@@ -116,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let id = sender.representedObject as? String,
               let preset = store.configuration.presets.first(where: { $0.id == id }) else { return }
         guard manager.isTrusted else {
-            lastResult = "Tile 尚未检测到辅助功能授权"
+            lastResult = "Tile does not have Accessibility permission."
             configure()
             return
         }
@@ -124,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // selected command now, so reopening the menu cannot display a stale
         // result or leave an older layout queued behind a later click.
         lastResult = manager.arrange(preset, gap: store.configuration.gap)
+        selectPreset(preset)
         statusItem.button?.toolTip = lastResult
     }
 
@@ -134,6 +155,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func authorize() {
         manager.requestPermission()
+    }
+
+    private var selectedPreset: LayoutPreset? {
+        store.configuration.presets.first { $0.id == selectedPresetID } ?? store.configuration.presets.first
+    }
+
+    private func synchronizeSnapPreset() {
+        if !manager.isTrusted && snapper.isEnabled { snapper.stop() }
+        if let preset = selectedPreset, snapper.preset != preset { snapper.select(preset) }
+        statusItem?.button?.contentTintColor = snapper.isEnabled ? .controlAccentColor : nil
+    }
+
+    private func selectPreset(_ preset: LayoutPreset) {
+        selectedPresetID = preset.id
+        UserDefaults.standard.set(preset.id, forKey: "snapPresetID")
+        snapper.select(preset)
+    }
+
+    @objc private func selectSnapLayout(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let preset = store.configuration.presets.first(where: { $0.id == id }) else { return }
+        selectPreset(preset)
+        report("Snap layout selected: \(preset.name).")
+    }
+
+    @objc private func toggleSnapping() {
+        if snapper.isEnabled {
+            snapper.stop(); report("Drag snapping is off.")
+        } else if let preset = selectedPreset {
+            if snapper.start(with: preset) {
+                report("Drag snapping is on: \(preset.name). Drag to preview; release to fill. Resizing stays free.")
+            } else {
+                report("Could not enable snapping. Check Accessibility permission.")
+                configure()
+            }
+        }
+        synchronizeSnapPreset()
+    }
+
+    private func report(_ message: String) {
+        lastResult = message
+        statusItem?.button?.toolTip = message
+    }
+
+    func applicationWillTerminate(_ notification: Notification) { snapper.stop() }
+
+    @objc private func captureLayout() {
+        guard manager.isTrusted else { configure(); return }
+        if capture == nil {
+            capture = CaptureLayoutController(store: store, manager: manager, onSave: { [weak self] preset in
+                self?.selectPreset(preset)
+                self?.report("Saved \(preset.name) as a new layout with \(preset.layout.capacity) regions.")
+            }, onClose: { [weak self] in self?.capture = nil })
+        }
+        capture?.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        capture?.window?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func configure() {

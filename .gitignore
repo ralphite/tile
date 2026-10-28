@@ -2,3 +2,4 @@
 Tile.app/
 .DS_Store
 qa-artifacts/
+dist/

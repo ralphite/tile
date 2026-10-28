@@ -1,54 +1,134 @@
+<div align="center">
+
 # Tile
 
-一个原生 macOS 菜单栏工具：按保存的布局排列当前虚拟桌面的窗口。
+**A small macOS menu bar app that puts windows where they belong.**
 
-## 使用
+Zero-gap grids · Custom rectangular regions · Saved layouts
 
-打开项目中的 `Tile.app`，点击右上角九宫格图标。首次使用从菜单点「授权辅助功能…」，在系统设置 → 隐私与安全性 → 辅助功能中打开 Tile。应用无需录屏权限。
+[Download](https://github.com/ralphite/tile/releases) · [Quick start](#quick-start) · [Build from source](#build-from-source) · [Report an issue](https://github.com/ralphite/tile/issues/new/choose)
 
-- 初始布局：2 行 × 3 列、3 行 × 3 列、3 行 × 4 列。
-- 「布局配置…」支持平均网格和自定义矩形区域，可以新增、修改、删除、另存布局；保存后立即出现在菜单。配置窗口的「排列窗口…」打开同一个菜单。
-- 窗口间距统一为零。区域可以留白，但不能越界或重叠；相接的边缘不算重叠。
-- 每屏从最前面的窗口开始，占满格子后其余窗口保持原位；各显示器分别排列，不跨屏搬动。
-- 仅排列当前可见 Space 中可移动、可缩放的普通窗口。最小化、隐藏、全屏窗口和弹窗不参与。
-- 「恢复上次排列」恢复本次运行中上次调整的窗口位置和大小；其他 Space 的窗口保留恢复记录，切回后可继续恢复。
-- 应用可能限制窗口最小尺寸。Tile 会在菜单中报告不能准确适配的窗口，仍可恢复原位置。
-- Chrome 在 Dock 边界保留 1 pt 的系统余量。Tile 会兼容这一边界，避免底行拒绝缩放；区域之间仍然没有间距。
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-222222?logo=apple)
+![Swift + AppKit](https://img.shields.io/badge/Swift-AppKit-F05138?logo=swift&logoColor=white)
+![Dependencies](https://img.shields.io/badge/dependencies-none-347D39)
 
-## 自定义布局
+<img src="docs/layouts.svg" alt="Illustrations of an equal grid, a left-half and right-split layout, and a layout with empty space" width="920" />
 
-选择「＋ 新建布局」即可看到一个三窗口示例：左半屏一个窗口，右侧上方占 1/3、下方占 2/3。基础网格默认 12 行 × 12 列，行列数可调整，不绑定屏幕像素或应用。
+</div>
 
-选择区域编号（也可点击预览），输入左、上、宽、高，单位均为基础网格的格数。左、上从 0 开始。位置和尺寸即时预览，重叠或越界时不能保存。更改基础网格行列数会改变每格对应的屏幕比例，区域的格数保持原值。
+Tile lives in the menu bar. Pick a layout to arrange the normal windows on the current macOS desktop (Space). Start with a grid, define your own rectangles, or save the arrangement already on your screen.
 
-| 区域 | 左 | 上 | 宽 | 高 |
+> **Release status:** v0.3.0 is an early release. Saving selected windows and restoring their geometry after an app restart have passed native UI testing. Drag snapping is implemented, but physical-mouse verification is still pending. See [verification status](QA.md) for the exact limits.
+
+## What it does
+
+| Feature | Behavior |
+| --- | --- |
+| One-click arrangement | Apply a saved layout to the frontmost eligible windows on each display. |
+| Flexible grids | Default 2×3, 3×3 and 3×4 layouts; rows and columns are editable. |
+| Custom regions | Draw a layout through grid coordinates: any rectangular regions, with empty space allowed and overlap rejected. |
+| Zero gaps | Adjacent regions share boundaries, without added padding. |
+| Drag snapping | Choose **Snap Layout**, enable **Drag Snapping**, drag a window into a region, and release to fill it. The intended behavior leaves manual resizing free. |
+| Capture a layout | Select windows from a list, inspect the preview, and save their positions and sizes as a new preset. |
+| Restore | Undo the last arrangement or snap during the current app session. |
+
+Layouts store **regions, not app assignments**. If a layout has six regions and there are eight windows, only the first six are arranged; the other two stay in place. Each display is handled separately.
+
+## Quick start
+
+1. Download `Tile-0.3.0-macOS-arm64.zip` from [Releases](https://github.com/ralphite/tile/releases/latest).
+2. Unzip it and move `Tile.app` to Applications. The downloadable binary is for **Apple silicon** and requires **macOS 13 or later**. Intel Macs can build from source.
+3. Open Tile. It runs in the menu bar and does not keep a Dock icon.
+4. Choose **Allow Accessibility…**, then enable Tile in **System Settings → Privacy & Security → Accessibility**.
+5. Click the grid icon and choose a layout. **Edit Layouts…** opens the editor; its **Arrange Windows…** button opens the same arrangement menu.
+
+The current binary is signed with a dedicated local development identity, **not an Apple Developer ID**, and is **not notarized**. macOS may block the download on first launch. Review [Apple’s guidance for opening apps safely](https://support.apple.com/en-us/102445), or build from source. Do not disable Gatekeeper globally.
+
+### Create a custom layout
+
+Open **Edit Layouts… → + New Layout → Custom Regions**. Choose the base grid, select a numbered region, then set **Left**, **Top**, **Width**, and **Height** in grid cells. Left and Top start at zero.
+
+For a 12×12 base grid:
+
+| Region | Left | Top | Width | Height |
 | --- | ---: | ---: | ---: | ---: |
-| 左半屏 | 0 | 0 | 6 | 12 |
-| 右上 1/3 | 6 | 0 | 6 | 4 |
-| 右下 2/3 | 6 | 4 | 6 | 8 |
+| Left half | 0 | 0 | 6 | 12 |
+| Upper-right third | 6 | 0 | 6 | 4 |
+| Lower-right two thirds | 6 | 4 | 6 | 8 |
 
-「添加区域」在空白处加入一个可编辑矩形；没有空白时先缩小或删除一个区域。「保存」更新当前配置，「另存为」保留原配置并创建副本。窗口按区域编号依次放置；配置只记录区域，不绑定应用。
+The preview updates while editing. Regions may touch but cannot overlap or extend beyond the base grid. **Save** updates the selected preset; **Save a Copy** creates another preset. Changing base-grid dimensions changes the proportions of the existing cell coordinates.
 
-本阶段不包含拖动真实窗口吸附、保存当前窗口位置或全局快捷键。
+### Snap an individual window
 
-## 开发
+1. Choose a preset in **Snap Layout**. Selecting it does not rearrange other windows.
+2. Choose **Enable Drag Snapping**.
+3. Move a window by its title bar. Regions appear during a detected move; the region under the pointer is highlighted.
+4. Release inside a region to fill it. Releasing over empty space leaves the window where it was dropped.
 
-需要 macOS 13+ 及 Xcode Command Line Tools，无第三方依赖。
+Use **Disable Drag Snapping** to return to normal dragging. Snapping starts off when Tile launches. It uses mouse-event notifications while enabled, with no idle polling. Manual resizing is excluded from snapping. Physical-mouse acceptance testing for this feature remains pending in v0.3.0.
+
+### Save the arrangement on screen
+
+Arrange and resize windows, then choose **Save Current Windows as Layout…**:
+
+- Select the display and check the windows to include. Background windows can be excluded.
+- Click **Refresh Windows** after moving or resizing windows while the capture window is open.
+- Check the preview and enter a name. Selected regions must be inside the usable display and must not overlap.
+- Choose **Save as New Layout**. Existing presets stay intact.
+
+Captured coordinates use the display’s point dimensions as the base grid to preserve normal manual placements accurately. The resulting preset scales with the usable display area and can be edited like any other custom layout.
+
+## Scope, privacy, and limitations
+
+- Tile acts on visible, movable, resizable normal windows in the current Space. Hidden, minimized, fullscreen, and modal windows are excluded.
+- Applications can impose minimum sizes or reject a position. Tile reports limited or failed adjustments in its menu.
+- Chrome may need a **1-point reserve at the Dock edge** to accept a resize. This is an outer system boundary; internal region gaps remain zero.
+- A snap moves the dragged window only. It does not swap or evict an existing window in the target region.
+- Screen Recording permission is not required. The app has no network client, analytics, account, or cloud service. Window titles appear only in the capture picker; saved layouts contain geometry and names, not window titles or app identities.
+- Window matching uses the private macOS symbol `_AXUIElementGetWindow`, since no public AX-to-CG-window-ID bridge is available. Tile stops window operations if this symbol is missing. macOS upgrades may require compatibility work.
+- Cross-Space isolation, multiple physical displays, and direct menu-bar icon interaction still need broader real-device verification. Do not infer these checks passed from geometry unit tests.
+- No global hotkey or launch-at-login setting is included.
+
+## Build from source
+
+Requirements: macOS 13+, Xcode Command Line Tools, and Git. There are no third-party runtime dependencies.
 
 ```sh
+git clone https://github.com/ralphite/tile.git
+cd tile
 ./scripts/build.sh
 ./scripts/test.sh
 open Tile.app
 ```
 
-构建输出到固定路径 `Tile.app`，首次构建创建 Tile 专属本地签名，后续复用同一身份。签名文件放在 `~/Library/Application Support/Tile/Signing`，随机钥匙串密码由脚本管理，仅当前用户可读，不需要其他项目或登录钥匙串的密码。脚本仅向 `/usr/bin/codesign` 授权访问这把新密钥，不修改系统证书信任设置，构建时明确指定 Tile 钥匙串。不要删除签名目录，否则应用身份会变化、需要重新授权。编译、签名、验证全部成功后才替换应用。未开启登录自启，也没有后台轮询。
+The build targets the current machine’s architecture. It stages, compiles, signs and verifies the app before replacing `Tile.app`, preserving the previous app if building fails.
 
-如果系统设置中 Tile 已开启、应用仍显示「尚未检测到辅助功能授权」，旧的 ad-hoc 授权记录可能不匹配当前签名。请在辅助功能列表移除旧 Tile，再添加当前 `Tile.app`，回到配置窗口点「检查权限」。仅反复切换旧条目可能保留失效的代码要求。配置窗口从 Tile 自身进程检测权限，显示实际应用路径，系统日志也会记录检测值。
+The first build creates a dedicated local signing identity in `~/Library/Application Support/Tile/Signing`. Later builds reuse it so Accessibility permission does not depend on a changing ad-hoc signature. Its random keychain password is managed locally by the script. The private key, password, user layouts, and local test artifacts are never part of the repository or release archive. Keep the signing directory if rebuilding the same installation.
 
-配置保存在 `~/Library/Application Support/Tile/layouts.json`。版本 2 增加 regions 矩形区域，旧版 grid、split 仍可读取。升级时保留所有原布局和 ID，将间距改为零，并先备份原文件到同目录的 `layouts-before-zero-gap-*.json`。预设只是配置数据，不参与排列算法分支。损坏配置不会自动覆盖，主动保存时会先备份。
+If Accessibility is enabled but Tile still reports missing permission, confirm the entry refers to the current app. An old ad-hoc build may require removing its old entry and adding the current `Tile.app` once.
 
-窗口枚举使用 Core Graphics 的当前屏幕列表，再用 AX 调整位置。macOS 没有公开的 AX → CGWindowID 桥接，当前使用动态加载的 `_AXUIElementGetWindow` 做准确匹配，避免不同 Space 上同名同位置窗口混淆。若系统不提供此符号，则不移动窗口并报告原因；系统升级后应复测。
+### Configuration
 
-## 验证
+Presets live in:
 
-布局测试覆盖网格坐标、负坐标显示器、边距、递归分区、比例、无效输入与 JSON 往返。已用真实 Chrome 窗口验证四种布局、容量溢出和恢复；具体结果及尚未完成的跨 Space 验收见 [QA.md](QA.md)。
+```text
+~/Library/Application Support/Tile/layouts.json
+```
+
+Configuration version 2 supports equal grids, weighted recursive splits, and explicit rectangular regions. Older presets and their IDs are preserved when upgrading. Legacy nonzero gaps are migrated to zero after an exact backup is written beside the configuration. A malformed file is preserved rather than silently overwritten.
+
+### Source map
+
+| File | Responsibility |
+| --- | --- |
+| `Sources/App.swift` | Menu bar, commands, selected snap preset, app lifecycle |
+| `Sources/Layout.swift` | Layout model, validation, shared-edge geometry |
+| `Sources/WindowManager.swift` | Current-Space window matching, Accessibility writes, restore |
+| `Sources/SnapController.swift` | Drag events, region overlay, drop completion |
+| `Sources/CaptureLayoutController.swift` | Window selection and capture preview |
+| `Sources/WindowGeometry.swift` | Move/resize classification and capture conversion |
+| `Sources/LayoutEditor.swift` | Preset editor and live validation |
+| `Sources/LayoutStore.swift` | Persistence and migration backups |
+| `Tests/LayoutTests.swift` | Geometry, capture, migration, and persistence checks |
+
+See [QA.md](QA.md) for verified behavior and pending checks, and [CHANGELOG.md](CHANGELOG.md) for release history. Bug reports should include the macOS version, display setup, layout, affected application, and expected versus actual behavior. Remove private window titles from screenshots before sharing.

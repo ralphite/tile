@@ -22,6 +22,7 @@ struct LayoutRegion: Codable, Equatable {
 }
 
 struct RegionLayout: Codable, Equatable {
+    static let maximumDimension = 100_000
     var columns: Int
     var rows: Int
     var regions: [LayoutRegion]
@@ -33,18 +34,18 @@ struct RegionLayout: Codable, Equatable {
     ])
 
     var validationError: String? {
-        guard (1...1000).contains(columns), (1...1000).contains(rows) else { return "基础网格的行列数须为 1–1000。" }
-        guard !regions.isEmpty else { return "请至少添加一个区域。" }
+        guard (1...Self.maximumDimension).contains(columns), (1...Self.maximumDimension).contains(rows) else { return "Base grid dimensions must be between 1 and \(Self.maximumDimension)." }
+        guard !regions.isEmpty else { return "Add at least one region." }
         for (index, region) in regions.enumerated() {
             guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
                   region.x < columns, region.y < rows,
                   region.width <= columns - region.x, region.height <= rows - region.y else {
-                return "区域 \(index + 1) 超出网格，或宽高不是正数。"
+                return "Region \(index + 1) is outside the grid or has a nonpositive size."
             }
             for other in regions[..<index] {
                 let overlap = region.rect.intersection(other.rect)
                 if !overlap.isNull && overlap.width > 0 && overlap.height > 0 {
-                    return "区域 \(index + 1) 与其他区域重叠；边缘可以相接。"
+                    return "Region \(index + 1) overlaps another region. Touching edges are allowed."
                 }
             }
         }
@@ -89,9 +90,9 @@ indirect enum LayoutNode: Codable, Equatable {
         switch self {
         case let .regions(layout): return layout.validationError
         case let .grid(rows, columns):
-            return rows > 0 && columns > 0 && capacity <= 10_000 ? nil : "网格行列数无效或区域过多。"
+            return rows > 0 && columns > 0 && capacity <= 10_000 ? nil : "Invalid grid dimensions or too many regions."
         case let .split(_, children):
-            guard !children.isEmpty, children.allSatisfy({ $0.weight.isFinite && $0.weight > 0 }) else { return "分区比例无效。" }
+            guard !children.isEmpty, children.allSatisfy({ $0.weight.isFinite && $0.weight > 0 }) else { return "Invalid split weights." }
             return children.compactMap { $0.node.validationError }.first
         }
     }

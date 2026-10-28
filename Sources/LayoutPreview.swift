@@ -4,12 +4,14 @@ import AppKit
 final class LayoutPreview: NSView {
     var layout: LayoutNode = .grid(rows: 2, columns: 3) { didSet { needsDisplay = true } }
     var selectedRegion: Int? { didSet { needsDisplay = true } }
+    var normalizedFrames: [CGRect]? { didSet { needsDisplay = true } }
+    var screenSize: CGSize? { didSet { needsDisplay = true } }
     var onSelect: ((Int) -> Void)?
     override var isFlipped: Bool { true }
 
     private var screenRect: CGRect {
         let available = bounds.insetBy(dx: 16, dy: 12)
-        let size = NSScreen.main?.visibleFrame.size ?? CGSize(width: 16, height: 9)
+        let size = screenSize ?? NSScreen.main?.visibleFrame.size ?? CGSize(width: 16, height: 9)
         let width = min(available.width, available.height * size.width / size.height)
         let height = width * size.height / size.width
         return CGRect(x: available.midX - width / 2, y: available.midY - height / 2, width: width, height: height)
@@ -20,7 +22,7 @@ final class LayoutPreview: NSView {
         NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
         let screen = screenRect
         NSColor.windowBackgroundColor.setFill(); screen.fill()
-        if case let .regions(custom) = layout, custom.columns > 0, custom.rows > 0 {
+        if normalizedFrames == nil, case let .regions(custom) = layout, custom.columns > 0, custom.rows > 0 {
             NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
             let lines = NSBezierPath()
             for x in stride(from: 0, through: custom.columns, by: max(1, custom.columns / 32)) {
@@ -33,7 +35,8 @@ final class LayoutPreview: NSView {
             }
             lines.lineWidth = 0.5; lines.stroke()
         }
-        for (index, frame) in layout.cellFrames(in: screen, gap: 0).enumerated() {
+        let frames = normalizedFrames?.map { CGRect(x: screen.minX + $0.minX * screen.width, y: screen.minY + $0.minY * screen.height, width: $0.width * screen.width, height: $0.height * screen.height) } ?? layout.cellFrames(in: screen, gap: 0)
+        for (index, frame) in frames.enumerated() {
             let selected = selectedRegion == index
             NSColor.controlAccentColor.withAlphaComponent(selected ? 0.35 : 0.13).setFill(); frame.fill()
             (selected ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
@@ -50,7 +53,7 @@ final class LayoutPreview: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard case .regions = layout else { return }
+        guard normalizedFrames == nil, case .regions = layout else { return }
         let point = convert(event.locationInWindow, from: nil)
         if let index = layout.cellFrames(in: screenRect, gap: 0).firstIndex(where: { $0.contains(point) }) { onSelect?(index) }
     }

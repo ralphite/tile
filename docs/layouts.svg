@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="312" viewBox="0 0 960 312" role="img" aria-labelledby="title desc">
+<title id="title">Tile layout examples</title><desc id="desc">Three schematic desktop layouts: an equal six-window grid; a left half and two right regions; and custom regions with empty space. These are illustrations, not screenshots.</desc>
+<rect width="960" height="312" rx="20" fill="#101822"/>
+<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">
+<text x="32" y="43" fill="#f5f7fb" font-size="20" font-weight="600">Your windows. Your layout.</text>
+<text x="32" y="68" fill="#a3b3c4" font-size="13">Equal grids or custom rectangles, with no added gaps.</text>
+<g transform="translate(32 92)"><rect width="280" height="152" rx="5" fill="#233449"/>
+<path d="M93.33 0V152M186.67 0V152M0 76H280" stroke="#101822" stroke-width="2"/>
+<g fill="#c6def4" font-size="18" text-anchor="middle"><text x="47" y="45">1</text><text x="140" y="45">2</text><text x="233" y="45">3</text><text x="47" y="121">4</text><text x="140" y="121">5</text><text x="233" y="121">6</text></g>
+<text y="181" fill="#e4eaf1" font-size="14">Equal grid</text></g>
+<g transform="translate(340 92)"><rect width="280" height="152" rx="5" fill="#1d463f"/>
+<path d="M140 0V152M140 50.67H280" stroke="#101822" stroke-width="2"/>
+<g fill="#b6e8d4" font-size="18" text-anchor="middle"><text x="70" y="83">1</text><text x="210" y="33">2</text><text x="210" y="108">3</text></g>
+<text y="181" fill="#e4eaf1" font-size="14">Left half + right split</text></g>
+<g transform="translate(648 92)"><rect width="280" height="152" rx="5" fill="#192331" stroke="#334052"/>
+<rect x="10" y="10" width="100" height="132" fill="#433752"/><rect x="122" y="10" width="148" height="54" fill="#433752"/><rect x="122" y="76" width="110" height="66" fill="#433752"/>
+<g fill="#e2c9f4" font-size="18" text-anchor="middle"><text x="60" y="83">1</text><text x="196" y="44">2</text><text x="177" y="116">3</text></g>
+<text y="181" fill="#e4eaf1" font-size="14">Custom regions + empty space</text></g>
+</g></svg>

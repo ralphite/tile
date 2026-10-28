@@ -1,0 +1,23 @@
+name: Bug report
+description: Report a window arrangement or layout problem.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Include the steps and selected layout. Remove private window titles from screenshots.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: Tile version, macOS version, affected application, number of displays
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Layout and menu result
+      description: Grid dimensions or region coordinates, window count, and the result shown in Tile's menu.

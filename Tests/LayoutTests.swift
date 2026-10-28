@@ -43,7 +43,7 @@ struct LayoutTests {
             LayoutPart(weight: Double.greatestFiniteMagnitude, node: .grid(rows: 1, columns: 1))
         ])
         expect(largeWeights.cellFrames(in: screen, gap: 0).allSatisfy { $0.width == screen.width / 2 }, "weight normalization avoids overflow")
-        let preset = LayoutPreset(id: "mixed", name: "混合布局", layout: mixed)
+        let preset = LayoutPreset(id: "mixed", name: "Mixed Layout", layout: mixed)
         let decoded = try JSONDecoder().decode(LayoutPreset.self, from: JSONEncoder().encode(preset))
         expect(decoded == preset, "recursive layout JSON round trip")
         let custom = RegionLayout.example
@@ -65,9 +65,25 @@ struct LayoutTests {
         var outside = custom
         outside.regions[2].height = 9
         expect(outside.validationError != nil, "out of bounds region rejected")
-        let customPreset = LayoutPreset(id: "custom", name: "左大右二", layout: .regions(custom))
+        let customPreset = LayoutPreset(id: "custom", name: "Left Half + Right Split", layout: .regions(custom))
         let decodedCustom = try JSONDecoder().decode(LayoutPreset.self, from: JSONEncoder().encode(customPreset))
         expect(decodedCustom == customPreset, "custom regions round trip")
+        let manualArea = CGRect(x: -2560, y: 38, width: 2560, height: 1362)
+        let manual = [CGRect(x: -2550, y: 48, width: 901, height: 800),
+                      CGRect(x: -1600, y: 48, width: 1100, height: 500),
+                      CGRect(x: -1600, y: 560, width: 1100, height: 700)]
+        let captured = try CapturedLayout.make(frames: manual.reversed(), in: manualArea)
+        expect(captured.frames(in: manualArea) == manual, "manual rectangles preserve positions, sizes, blank space, and negative screen origin")
+        expect(WindowGesture.classify(from: manual[0], to: manual[0].offsetBy(dx: 200, dy: 100)) == .moved, "window movement snaps")
+        expect(WindowGesture.classify(from: manual[0], to: manual[0].insetBy(dx: 10, dy: 20)) == .resized, "manual resizing stays free")
+        expect(WindowGesture.classify(from: manual[0], to: manual[0]) == .unchanged, "content dragging does not move window")
+        do { _ = try CapturedLayout.make(frames: [manual[0], manual[0]], in: manualArea); preconditionFailure("overlap accepted") } catch { }
+        do { _ = try CapturedLayout.make(frames: [], in: manualArea); preconditionFailure("empty capture accepted") } catch { }
+        let capturePreset = LayoutPreset(id: "captured", name: "Manual Layout", layout: .regions(captured))
+        let captureData = try JSONEncoder().encode(capturePreset)
+        let captureJSON = String(data: captureData, encoding: .utf8)!
+        expect(!captureJSON.contains("title") && !captureJSON.contains("pid"), "captured preset contains geometry only")
+        try verifyStoreMigration(capturePreset)
         try verifyStoreMigration(customPreset)
         print("LayoutTests: passed geometry, weighted splits, bounds, invalid inputs, Codable")
     }
@@ -77,7 +93,7 @@ struct LayoutTests {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appendingPathComponent("layouts.json")
-        let existing = LayoutPreset(id: "existing", name: "现有布局", layout: .grid(rows: 2, columns: 3))
+        let existing = LayoutPreset(id: "existing", name: "Existing Layout", layout: .grid(rows: 2, columns: 3))
         let oldData = try JSONEncoder().encode(TileConfiguration(version: 1, gap: 8, presets: [existing]))
         try oldData.write(to: url)
         let store = LayoutStore(url: url)

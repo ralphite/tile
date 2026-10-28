@@ -11,6 +11,7 @@ final class LayoutStore {
     let url: URL
     private(set) var configuration: TileConfiguration
     private(set) var loadError: String?
+    var onChange: (() -> Void)?
 
     init(url suppliedURL: URL? = nil) {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -24,7 +25,7 @@ final class LayoutStore {
         if FileManager.default.fileExists(atPath: url.path) {
             do {
                 var saved = try JSONDecoder().decode(TileConfiguration.self, from: Data(contentsOf: url))
-                guard (1...2).contains(saved.version), saved.gap.isFinite else { throw invalid("配置版本或间距无效") }
+                guard (1...2).contains(saved.version), saved.gap.isFinite else { throw invalid("Invalid configuration version or gap.") }
                 try validate(saved.presets)
                 let needsMigration = saved.version < 2 || saved.gap != 0
                 saved.version = 2
@@ -35,7 +36,7 @@ final class LayoutStore {
                     try write(saved)
                 }
             } catch {
-                loadError = "配置未能完整读取或更新，原文件已保留：\(error.localizedDescription)"
+                loadError = "Could not fully read or update the configuration. The original file is preserved: \(error.localizedDescription)"
             }
         }
     }
@@ -50,6 +51,7 @@ final class LayoutStore {
         try write(updated)
         configuration = updated
         loadError = nil
+        onChange?()
     }
 
     private func write(_ updated: TileConfiguration) throws {
@@ -65,10 +67,10 @@ final class LayoutStore {
     }
 
     private func validate(_ presets: [LayoutPreset]) throws {
-        guard !presets.isEmpty, Set(presets.map(\.id)).count == presets.count else { throw invalid("至少保留一个布局，布局标识不能重复。") }
+        guard !presets.isEmpty, Set(presets.map(\.id)).count == presets.count else { throw invalid("Keep at least one layout. Layout IDs must be unique.") }
         for preset in presets {
             guard !preset.id.isEmpty, !preset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  preset.layout.capacity <= 10_000 else { throw invalid("布局名称或区域数量无效。") }
+                  preset.layout.capacity <= 10_000 else { throw invalid("Invalid layout name or region count.") }
             if let message = preset.layout.validationError { throw invalid(message) }
         }
     }
