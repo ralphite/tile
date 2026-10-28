@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.3.0 — 2026-10-28
+## Unreleased — 0.3.0
+
+Publication is on hold: basic grid arrangement is reported failing in real mixed-app use and must be fixed and verified first.
 
 - Add a selectable snap layout and an explicit drag-snapping mode in the menu.
 - Add drag-region overlays and release-to-fill behavior; exclude manual resize gestures.

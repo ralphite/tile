@@ -2,6 +2,12 @@
 
 This record separates actual native UI checks from geometry tests and unfinished acceptance checks. Local evidence is kept under the ignored `qa-artifacts/` directory; it is not included in the public repository because it can contain local window information.
 
+## Current blocking user report — 2026-10-28
+
+The user reported that the basic row/column presets do not work in the actual mixed-app desktop. A supplied screenshot shows one large left window and two smaller right-side windows separated by large blank areas. Earlier isolated Chrome tests do not establish correctness for this scenario. Reproduction and a verified fix are pending; release publication is on hold.
+
+Priority: deterministic planning tests for 1×2, 1×3, 2×3, 3×3 and 3×4; a thin, verified single-window frame adapter; then actual mixed-app placement after 02:00 as requested. Menu and layout-creation redesign follows the core fix.
+
 ## Environment
 
 - Apple silicon Mac; 3840 × 2160 display.

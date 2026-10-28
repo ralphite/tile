@@ -6,7 +6,7 @@
 
 Zero-gap grids · Custom rectangular regions · Saved layouts
 
-[Download](https://github.com/ralphite/tile/releases) · [Quick start](#quick-start) · [Build from source](#build-from-source) · [Report an issue](https://github.com/ralphite/tile/issues/new/choose)
+[Release status](https://github.com/ralphite/tile/releases) · [Quick start](#quick-start) · [Build from source](#build-from-source) · [Report an issue](https://github.com/ralphite/tile/issues/new/choose)
 
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B-222222?logo=apple)
 ![Swift + AppKit](https://img.shields.io/badge/Swift-AppKit-F05138?logo=swift&logoColor=white)
@@ -18,7 +18,7 @@ Zero-gap grids · Custom rectangular regions · Saved layouts
 
 Tile lives in the menu bar. Pick a layout to arrange the normal windows on the current macOS desktop (Space). Start with a grid, define your own rectangles, or save the arrangement already on your screen.
 
-> **Release status:** v0.3.0 is an early release. Saving selected windows and restoring their geometry after an app restart have passed native UI testing. Drag snapping is implemented, but physical-mouse verification is still pending. See [verification status](QA.md) for the exact limits.
+> **Development status:** Basic grid placement has been reported failing with real mixed-application windows. This takes precedence over earlier isolated Chrome test results. Binary releases are on hold until the normal placement workflow is fixed and verified. Drag snapping also remains unverified with a physical mouse. See [QA.md](QA.md).
 
 ## What it does
 
@@ -36,8 +36,8 @@ Layouts store **regions, not app assignments**. If a layout has six regions and 
 
 ## Quick start
 
-1. Download `Tile-0.3.0-macOS-arm64.zip` from [Releases](https://github.com/ralphite/tile/releases/latest).
-2. Unzip it and move `Tile.app` to Applications. The downloadable binary is for **Apple silicon** and requires **macOS 13 or later**. Intel Macs can build from source.
+1. [Build from source](#build-from-source). A binary release is not available yet because normal grid placement is under repair.
+2. Keep the resulting `Tile.app` in a stable location. It requires **macOS 13 or later** and builds for the current machine’s architecture.
 3. Open Tile. It runs in the menu bar and does not keep a Dock icon.
 4. Choose **Allow Accessibility…**, then enable Tile in **System Settings → Privacy & Security → Accessibility**.
 5. Click the grid icon and choose a layout. **Edit Layouts…** opens the editor; its **Arrange Windows…** button opens the same arrangement menu.
