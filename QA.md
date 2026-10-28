@@ -17,4 +17,14 @@
 - `scripts/test.sh` 的布局、分区、坐标和配置序列化测试通过。
 - 实测坐标保存在本地忽略目录 `qa-artifacts/chrome-window-qa.json`。
 
+## 正常连续切换复测
+
+上一轮每项排列后先恢复，未覆盖用户连续选择不同布局的正常流程。后续按 **2×3 → 3×3 → 3×4** 连续切换三轮，中间不恢复、不重新创建菜单，共九次点击。
+
+- 修复：菜单结构重建改到 AppKit 的 `menuNeedsUpdate`；不再在 `menuWillOpen` 中增删菜单项。依据：[Apple 的回调说明](https://developer.apple.com/documentation/appkit/nsmenudelegate/menuWillOpen(_:))。
+- 修复：移除排列与恢复操作的延迟队列；点击处理完成时窗口结果已可读取，重新打开菜单不再显示上一轮计数。
+- 配置入口复用菜单栏的同一个 `NSMenu` 对象，避免每次新建菜单掩盖重复使用时的问题。
+- 12 个真实 Chrome 测试窗口，九次点击后立即逐窗核对坐标、尺寸和最新菜单计数，全部通过。2×3、3×3、3×4 每轮分别确认 6、9、12 个窗口。
+- 证据：`qa-artifacts/consecutive-switching-after.json`。修复版已重建并运行，测试窗口全部关闭。
+
 尚未完成：新建普通虚拟桌面及跨 Space 隔离的端到端验收。当前桌面控制工具无法读取 Mission Control 界面，因此未将代码审查结果冒充跨桌面实测。菜单栏图标的直接点击也未由工具验证；上述测试通过配置窗口打开相同的菜单和处理函数。

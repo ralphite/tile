@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         lastResult = store.loadError
+        updateMenu(menu)
         if CommandLine.arguments.contains("--show-menu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.statusItem.button?.performClick(nil) }
         } else if !manager.isTrusted || !UserDefaults.standard.bool(forKey: "hasLaunched") {
@@ -31,7 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        updateMenu(menu)
+    }
+
+    private func updateMenu(_ menu: NSMenu) {
         menu.removeAllItems()
         let header = NSMenuItem(title: "Tile · 当前桌面", action: nil, keyEquivalent: "")
         header.isEnabled = false
@@ -96,18 +101,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             configure()
             return
         }
-        // Defer until the status menu has closed, so its window is never a candidate.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            self.lastResult = self.manager.arrange(preset, gap: self.store.configuration.gap)
-            self.statusItem.button?.toolTip = self.lastResult
-        }
+        // Tile's own windows are already excluded by WindowManager. Execute the
+        // selected command now, so reopening the menu cannot display a stale
+        // result or leave an older layout queued behind a later click.
+        lastResult = manager.arrange(preset, gap: store.configuration.gap)
+        statusItem.button?.toolTip = lastResult
     }
 
     @objc private func undo() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            self.lastResult = self.manager.undo()
-            self.statusItem.button?.toolTip = self.lastResult
-        }
+        lastResult = manager.undo()
+        statusItem.button?.toolTip = lastResult
     }
 
     @objc private func authorize() {
@@ -118,10 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if editor == nil {
             editor = LayoutEditor(store: store, manager: manager, onArrangeMenu: { [weak self] sender in
                 guard let self else { return }
-                let menu = NSMenu()
-                menu.autoenablesItems = false
-                menu.delegate = self
-                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
+                self.statusItem.menu?.popUp(positioning: nil,
+                    at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
             }) { [weak self] in self?.editor = nil }
         }
         editor?.showWindow(nil)
