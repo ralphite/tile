@@ -12,8 +12,12 @@ xcrun swiftc -swift-version 5 -O -target "$(uname -m)-apple-macos13.0" -module-c
 cp Info.plist "$TILE_BUNDLE/Contents/Info.plist"
 # A persistent certificate keeps the designated requirement stable across builds.
 # Ad-hoc signing binds Accessibility grants to a changing executable cdhash.
-TILE_SIGNER="${TILE_SIGNING_IDENTITY:-Logue Local Code Signing}"
-codesign --force --sign "$TILE_SIGNER" --identifier dev.yadong.tile --timestamp=none "$TILE_BUNDLE"
+./scripts/setup-signing.sh
+TILE_SIGNING_DIR="${TILE_SIGNING_DIR:-$HOME/Library/Application Support/Tile/Signing}"
+TILE_SIGNER=$(openssl x509 -in "$TILE_SIGNING_DIR/certificate.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+codesign --force --sign "$TILE_SIGNER" \
+  --keychain "$TILE_SIGNING_DIR/Tile.keychain-db" \
+  --identifier dev.yadong.tile --timestamp=none "$TILE_BUNDLE"
 codesign --verify --deep --strict "$TILE_BUNDLE"
 # A failed compile/sign must leave the installed application untouched.
 if [[ -d Tile.app ]]; then mv Tile.app "$TILE_STAGE/previous.app"; fi
