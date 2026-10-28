@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        installEditingMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "Tile · 排列窗口")
         statusItem.button?.toolTip = "Tile · 排列当前桌面的窗口"
@@ -25,6 +26,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             configure()
             UserDefaults.standard.set(true, forKey: "hasLaunched")
         }
+    }
+
+    private func installEditingMenu() {
+        let main = NSMenu()
+        let applicationItem = NSMenuItem()
+        let applicationMenu = NSMenu(title: "Tile")
+        let quit = applicationMenu.addItem(withTitle: "退出 Tile", action: #selector(quit), keyEquivalent: "q")
+        quit.target = self
+        applicationItem.submenu = applicationMenu
+        main.addItem(applicationItem)
+        let editItem = NSMenuItem(title: "编辑", action: nil, keyEquivalent: "")
+        let edit = NSMenu(title: "编辑")
+        for (title, selector, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"),
+                                       ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
+            edit.addItem(withTitle: title, action: NSSelectorFromString(selector), keyEquivalent: key)
+        }
+        editItem.submenu = edit; main.addItem(editItem)
+        NSApp.mainMenu = main
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -84,8 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func preview(_ layout: LayoutNode) -> NSImage {
         let image = NSImage(size: NSSize(width: 30, height: 22), flipped: true) { rect in
             NSColor.labelColor.setFill()
-            for cell in layout.cellFrames(in: rect.insetBy(dx: 1, dy: 1), gap: 2) {
-                NSBezierPath(roundedRect: cell, xRadius: 0.6, yRadius: 0.6).fill()
+            for cell in layout.cellFrames(in: rect.insetBy(dx: 1, dy: 1), gap: 0) {
+                NSBezierPath(roundedRect: cell.insetBy(dx: 0.7, dy: 0.7), xRadius: 0.6, yRadius: 0.6).fill()
             }
             return true
         }

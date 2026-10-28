@@ -250,11 +250,28 @@ final class WindowManager {
         // Move first so expansion is not clipped by the old origin near an edge.
         // An old large frame may clamp this first move; repeat after resizing.
         let initialMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-        let resized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
-        let finalMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+        var resized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+        var finalMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+        var responses = [initialMove, resized, finalMove]
+        // Some native windows reserve one point at the Dock boundary. When an
+        // exact-edge resize is ignored, retry inside that system boundary only;
+        // never introduce spacing between neighboring regions.
+        if let actual = self.frame(of: element), actual.height > frame.height + 2,
+           frame.height > 1, let primary = NSScreen.screens.first,
+           NSScreen.screens.contains(where: {
+               let area = axFrame($0.visibleFrame, primaryTop: primary.frame.maxY)
+               return abs(frame.maxY - area.maxY) < 1 && frame.minX >= area.minX && frame.maxX <= area.maxX
+           }) {
+            var edgeSize = CGSize(width: frame.width, height: frame.height - 1)
+            if let edgeValue = AXValueCreate(.cgSize, &edgeSize) {
+                resized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, edgeValue)
+                finalMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+                responses += [resized, finalMove]
+            }
+        }
         // The final size and move determine submission success. Any of the three
         // writes may change the window, so partial/uncertain writes remain undoable.
-        let mayHaveChanged = [initialMove, resized, finalMove].contains { $0 == .success || $0 == .cannotComplete }
+        let mayHaveChanged = responses.contains { $0 == .success || $0 == .cannotComplete }
         return (resized == .success && finalMove == .success, mayHaveChanged)
     }
 

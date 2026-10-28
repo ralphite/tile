@@ -11,12 +11,68 @@ struct LayoutPart: Codable, Equatable {
     var node: LayoutNode
 }
 
+/// Integer grid coordinates, independent of display resolution and application identity.
+struct LayoutRegion: Codable, Equatable {
+    var x: Int
+    var y: Int
+    var width: Int
+    var height: Int
+
+    var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
+}
+
+struct RegionLayout: Codable, Equatable {
+    var columns: Int
+    var rows: Int
+    var regions: [LayoutRegion]
+
+    static let example = RegionLayout(columns: 12, rows: 12, regions: [
+        LayoutRegion(x: 0, y: 0, width: 6, height: 12),
+        LayoutRegion(x: 6, y: 0, width: 6, height: 4),
+        LayoutRegion(x: 6, y: 4, width: 6, height: 8)
+    ])
+
+    var validationError: String? {
+        guard (1...1000).contains(columns), (1...1000).contains(rows) else { return "基础网格的行列数须为 1–1000。" }
+        guard !regions.isEmpty else { return "请至少添加一个区域。" }
+        for (index, region) in regions.enumerated() {
+            guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
+                  region.x < columns, region.y < rows,
+                  region.width <= columns - region.x, region.height <= rows - region.y else {
+                return "区域 \(index + 1) 超出网格，或宽高不是正数。"
+            }
+            for other in regions[..<index] {
+                let overlap = region.rect.intersection(other.rect)
+                if !overlap.isNull && overlap.width > 0 && overlap.height > 0 {
+                    return "区域 \(index + 1) 与其他区域重叠；边缘可以相接。"
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Shared boundaries use identical rounded endpoints, avoiding a one-pixel seam.
+    func frames(in rect: CGRect) -> [CGRect] {
+        guard validationError == nil else { return [] }
+        return regions.map { region in
+            let left = (rect.minX + rect.width * CGFloat(region.x) / CGFloat(columns)).rounded()
+            let right = (rect.minX + rect.width * CGFloat(region.x + region.width) / CGFloat(columns)).rounded()
+            let top = (rect.minY + rect.height * CGFloat(region.y) / CGFloat(rows)).rounded()
+            let bottom = (rect.minY + rect.height * CGFloat(region.y + region.height) / CGFloat(rows)).rounded()
+            return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        }
+    }
+}
+
 indirect enum LayoutNode: Codable, Equatable {
     case grid(rows: Int, columns: Int)
     case split(axis: SplitAxis, children: [LayoutPart])
+    case regions(RegionLayout)
 
     var capacity: Int {
         switch self {
+        case let .regions(layout):
+            return layout.validationError == nil ? layout.regions.count : 0
         case let .grid(rows, columns):
             guard rows > 0, columns > 0 else { return 0 }
             let product = rows.multipliedReportingOverflow(by: columns)
@@ -26,6 +82,17 @@ indirect enum LayoutNode: Codable, Equatable {
                 let sum = total.addingReportingOverflow(part.node.capacity)
                 return sum.overflow ? Int.max : sum.partialValue
             }
+        }
+    }
+
+    var validationError: String? {
+        switch self {
+        case let .regions(layout): return layout.validationError
+        case let .grid(rows, columns):
+            return rows > 0 && columns > 0 && capacity <= 10_000 ? nil : "网格行列数无效或区域过多。"
+        case let .split(_, children):
+            guard !children.isEmpty, children.allSatisfy({ $0.weight.isFinite && $0.weight > 0 }) else { return "分区比例无效。" }
+            return children.compactMap { $0.node.validationError }.first
         }
     }
 
@@ -43,6 +110,8 @@ indirect enum LayoutNode: Codable, Equatable {
 
     private func frames(in rect: CGRect, gap: CGFloat) -> [CGRect] {
         switch self {
+        case let .regions(layout):
+            return layout.frames(in: rect)
         case let .grid(rows, columns):
             guard rows > 0, columns > 0 else { return [] }
             let width = (rect.width - gap * CGFloat(columns - 1)) / CGFloat(columns)
@@ -51,9 +120,17 @@ indirect enum LayoutNode: Codable, Equatable {
             var result: [CGRect] = []
             for row in 0..<rows {
                 for column in 0..<columns {
-                    result.append(CGRect(x: rect.minX + CGFloat(column) * (width + gap),
-                                         y: rect.minY + CGFloat(row) * (height + gap),
-                                         width: width, height: height))
+                    if gap == 0 {
+                        let left = (rect.minX + CGFloat(column) * width).rounded()
+                        let right = (rect.minX + CGFloat(column + 1) * width).rounded()
+                        let top = (rect.minY + CGFloat(row) * height).rounded()
+                        let bottom = (rect.minY + CGFloat(row + 1) * height).rounded()
+                        result.append(CGRect(x: left, y: top, width: right - left, height: bottom - top))
+                    } else {
+                        result.append(CGRect(x: rect.minX + CGFloat(column) * (width + gap),
+                                             y: rect.minY + CGFloat(row) * (height + gap),
+                                             width: width, height: height))
+                    }
                 }
             }
             return result
