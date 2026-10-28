@@ -5,13 +5,12 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
     private let store: LayoutStore
     private let manager: WindowManager
     private let onClose: () -> Void
-    private let onArrangeMenu: (NSView) -> Void
     private let chooser = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let kind = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let kind = NSSegmentedControl(labels: ["Equal Grid", "Custom Regions"], trackingMode: .selectOne, target: nil, action: nil)
     private let nameField = NSTextField(string: "")
     private let rows = NSTextField(string: "2")
     private let columns = NSTextField(string: "3")
-    private let gridLabel = NSTextField(labelWithString: "Grid")
+    private let gridLabel = NSTextField(labelWithString: "Rows")
     private let regionChooser = NSPopUpButton(frame: .zero, pullsDown: false)
     private let coordinates = (0..<4).map { _ in NSTextField(string: "0") }
     private let regionControls = NSStackView()
@@ -21,16 +20,16 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
     private let permission = NSTextField(wrappingLabelWithString: "")
     private let permissionButton = NSButton(title: "Allow Accessibility…", target: nil, action: nil)
     private let deleteButton = NSButton(title: "Delete Layout", target: nil, action: nil)
+    private let saveCopyButton = NSButton(title: "Save a Copy", target: nil, action: nil)
     private let saveButton = NSButton(title: "Save", target: nil, action: nil)
     private var custom = RegionLayout.example
     private var selectedRegion = 0
     private var legacy: LayoutNode?
     private var loading = false
 
-    init(store: LayoutStore, manager: WindowManager, onArrangeMenu: @escaping (NSView) -> Void,
-         onClose: @escaping () -> Void) {
+    init(store: LayoutStore, manager: WindowManager, onClose: @escaping () -> Void) {
         self.store = store; self.manager = manager
-        self.onClose = onClose; self.onArrangeMenu = onArrangeMenu
+        self.onClose = onClose
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 630),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Tile · Layout Editor"
@@ -52,16 +51,17 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
         let divider = NSBox(); divider.boxType = .separator
         root.addArrangedSubview(divider); divider.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         chooser.target = self; chooser.action = #selector(selectionChanged)
-        root.addArrangedSubview(row("Layout", chooser))
-        nameField.placeholderString = "Layout name"
+        let layoutPicker = NSStackView(views: [chooser, NSButton(title: "New Layout", target: self, action: #selector(beginNewLayout))])
+        layoutPicker.spacing = 12
+        root.addArrangedSubview(row("Layout", layoutPicker))
+        nameField.placeholderString = "Optional; defaults to rows × columns"
         root.addArrangedSubview(row("Name", nameField))
-        kind.addItems(withTitles: ["Equal Grid", "Custom Regions"])
         kind.target = self; kind.action = #selector(kindChanged)
-        root.addArrangedSubview(row("Type", kind))
+        root.addArrangedSubview(row("Layout Type", kind))
         rows.setAccessibilityLabel("Grid rows"); columns.setAccessibilityLabel("Grid columns")
         for field in [rows, columns] { field.widthAnchor.constraint(equalToConstant: 58).isActive = true; field.delegate = self }
-        let dimensions = NSStackView(views: [rows, NSTextField(labelWithString: "rows ×"), columns, NSTextField(labelWithString: "columns"), NSTextField(labelWithString: "   Gap: 0")])
-        dimensions.spacing = 8
+        let dimensions = NSStackView(views: [rows, NSTextField(labelWithString: "Columns"), columns])
+        dimensions.spacing = 12
         gridLabel.widthAnchor.constraint(equalToConstant: 72).isActive = true
         root.addArrangedSubview(NSStackView(views: [gridLabel, dimensions]))
         preview.heightAnchor.constraint(equalToConstant: 200).isActive = true
@@ -89,12 +89,11 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
         root.addArrangedSubview(hint)
         message.font = .systemFont(ofSize: 12); message.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
         root.addArrangedSubview(message)
+        saveCopyButton.target = self; saveCopyButton.action = #selector(saveCopy)
         deleteButton.target = self; deleteButton.action = #selector(deletePreset)
         saveButton.target = self; saveButton.action = #selector(savePreset); saveButton.keyEquivalent = "\r"
         let spacer = NSView(); spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let buttons = NSStackView(views: [deleteButton,
-            NSButton(title: "Arrange Windows…", target: self, action: #selector(showArrangeMenu(_:))), spacer,
-            NSButton(title: "Save a Copy", target: self, action: #selector(saveCopy)), saveButton])
+        let buttons = NSStackView(views: [deleteButton, spacer, saveCopyButton, saveButton])
         root.addArrangedSubview(buttons)
         for view in [hint, message, buttons] { view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true }
         reloadChooser(select: store.configuration.presets.first?.id); refreshPermission()
@@ -130,44 +129,52 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
 
     @objc private func selectionChanged() {
         loading = true
-        while kind.numberOfItems > 2 { kind.removeItem(at: 2) }
+        kind.segmentCount = 2
         legacy = nil
         if let preset = store.configuration.presets.first(where: { $0.id == presetID }) {
             nameField.stringValue = preset.name
             switch preset.layout {
             case let .grid(r, c):
-                kind.selectItem(at: 0); rows.stringValue = String(r); columns.stringValue = String(c)
+                kind.selectedSegment = 0; rows.stringValue = String(r); columns.stringValue = String(c)
             case let .regions(layout):
-                kind.selectItem(at: 1); custom = layout
+                kind.selectedSegment = 1; custom = layout
                 rows.stringValue = String(layout.rows); columns.stringValue = String(layout.columns)
             case .split:
-                legacy = preset.layout; kind.addItem(withTitle: "Existing Split"); kind.selectItem(at: 2)
+                legacy = preset.layout; kind.segmentCount = 3; kind.setLabel("Existing Split", forSegment: 2); kind.selectedSegment = 2
             }
         } else {
-            nameField.stringValue = ""; kind.selectItem(at: 1); custom = .example
-            rows.stringValue = "12"; columns.stringValue = "12"
+            nameField.stringValue = ""; kind.selectedSegment = 0; custom = .example
+            rows.stringValue = "1"; columns.stringValue = "3"
         }
         selectedRegion = 0; loadRegionChooser(); loading = false
         updateKindUI(); updatePreview(); message.stringValue = ""
-        deleteButton.isEnabled = presetID != nil && store.configuration.presets.count > 1
+        let isNew = presetID == nil
+        deleteButton.isHidden = isNew; saveCopyButton.isHidden = isNew
+        saveButton.title = isNew ? "Create Layout" : "Save Changes"
+        deleteButton.isEnabled = !isNew && store.configuration.presets.count > 1
+    }
+
+    @objc func beginNewLayout() {
+        reloadChooser(select: nil)
+        window?.makeFirstResponder(rows)
     }
 
     @objc private func kindChanged() {
         loading = true
-        if kind.indexOfSelectedItem == 1 {
+        if kind.selectedSegment == 1 {
             custom = .example; selectedRegion = 0
             rows.stringValue = String(custom.rows); columns.stringValue = String(custom.columns); loadRegionChooser()
-        } else if kind.indexOfSelectedItem == 0 {
-            rows.stringValue = "2"; columns.stringValue = "3"
+        } else if kind.selectedSegment == 0 {
+            rows.stringValue = "1"; columns.stringValue = "3"
         }
         loading = false; updateKindUI(); updatePreview()
     }
 
     private func updateKindUI() {
-        let isCustom = kind.indexOfSelectedItem == 1
+        let isCustom = kind.selectedSegment == 1
         regionControls.isHidden = !isCustom
-        rows.isEnabled = kind.indexOfSelectedItem != 2; columns.isEnabled = rows.isEnabled
-        gridLabel.stringValue = isCustom ? "Base Grid" : "Grid"
+        rows.isEnabled = kind.selectedSegment != 2; columns.isEnabled = rows.isEnabled
+        gridLabel.stringValue = isCustom ? "Grid Rows" : "Rows"
         hint.stringValue = isCustom
             ? "Left and Top start at 0; size is in grid cells. Empty space is allowed; overlap is not. Windows fill numbered regions; extras stay in place."
             : "Fill left to right, then top to bottom, with zero gaps. Extra windows stay in place."
@@ -184,13 +191,13 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
         let region = custom.regions.indices.contains(selectedRegion) ? custom.regions[selectedRegion] : nil
         let values = region.map { [$0.x, $0.y, $0.width, $0.height] } ?? [0, 0, 1, 1]
         for (field, value) in zip(coordinates, values) { field.stringValue = String(value); field.isEnabled = region != nil }
-        preview.selectedRegion = kind.indexOfSelectedItem == 1 && region != nil ? selectedRegion : nil
+        preview.selectedRegion = kind.selectedSegment == 1 && region != nil ? selectedRegion : nil
     }
 
     private func candidateLayout() throws -> LayoutNode {
-        if kind.indexOfSelectedItem == 2, let legacy { return legacy }
+        if kind.selectedSegment == 2, let legacy { return legacy }
         guard let r = Int(rows.stringValue), let c = Int(columns.stringValue), (1...RegionLayout.maximumDimension).contains(r), (1...RegionLayout.maximumDimension).contains(c) else { throw inputError("Rows and columns must be integers from 1 to \(RegionLayout.maximumDimension).") }
-        if kind.indexOfSelectedItem == 0 {
+        if kind.selectedSegment == 0 {
             let layout = LayoutNode.grid(rows: r, columns: c)
             if let error = layout.validationError { throw inputError(error) }
             return layout
@@ -210,12 +217,12 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
         do {
             let layout = try candidateLayout()
             if case let .regions(candidate) = layout { custom = candidate }
-            preview.layout = layout; preview.selectedRegion = kind.indexOfSelectedItem == 1 ? selectedRegion : nil
+            preview.layout = layout; preview.selectedRegion = kind.selectedSegment == 1 ? selectedRegion : nil
             preview.setAccessibilityValue("\(layout.capacity) regions")
-            message.stringValue = ""; saveButton.isEnabled = true; return true
+            message.stringValue = ""; saveButton.isEnabled = true; saveCopyButton.isEnabled = true; return true
         } catch {
             message.textColor = .systemRed; message.stringValue = error.localizedDescription
-            saveButton.isEnabled = false; return false
+            saveButton.isEnabled = false; saveCopyButton.isEnabled = false; return false
         }
     }
     func controlTextDidChange(_ notification: Notification) { updatePreview() }
@@ -263,7 +270,7 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
             var updated = store.configuration.presets
             if let index = updated.firstIndex(where: { $0.id == id }) { updated[index] = preset } else { updated.append(preset) }
             try store.save(presets: updated); reloadChooser(select: id)
-            message.textColor = .secondaryLabelColor; message.stringValue = "Saved. Choose this layout from Arrange Windows to apply it."
+            message.textColor = .secondaryLabelColor; message.stringValue = "Saved. Click this layout in the Tile menu to arrange windows."
         } catch { message.textColor = .systemRed; message.stringValue = error.localizedDescription }
     }
     @objc private func deletePreset() {
@@ -276,7 +283,6 @@ final class LayoutEditor: NSWindowController, NSWindowDelegate, NSTextFieldDeleg
     }
     private func inputError(_ message: String) -> NSError { NSError(domain: "Tile", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
     @objc private func openPermissions() { manager.requestPermission() }
-    @objc private func showArrangeMenu(_ sender: NSButton) { onArrangeMenu(sender) }
     private func refreshPermission() {
         permission.stringValue = manager.isTrusted ? "Accessibility enabled · Current desktop only" : "Accessibility permission is required to arrange windows."
         permissionButton.isHidden = manager.isTrusted

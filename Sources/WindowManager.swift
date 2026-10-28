@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Darwin
+import OSLog
 
 @MainActor
 final class WindowManager {
@@ -45,6 +46,7 @@ final class WindowManager {
         let frame: CGRect
     }
 
+    private let frameLogger = Logger(subsystem: "dev.yadong.tile", category: "WindowFrames")
     private var originals: [OriginalWindow] = []
     private var hasRequestedPermission = false
     var canUndo: Bool { !originals.isEmpty }
@@ -72,21 +74,20 @@ final class WindowManager {
         guard isTrusted, let visible = visibleWindows().first(where: { $0.id == window.id && $0.pid == window.pid }),
               stillEligible(ManagedWindow(visible: visible, element: window.element)) else { return nil }
         let write = setFrame(target, on: window.element)
-        if write.mayHaveChanged {
+        if write.attempted {
             originals = [OriginalWindow(id: window.id, pid: window.pid, element: window.element, frame: window.originalFrame)]
         }
-        if let actual = frame(of: window.element), approximatelyEqual(actual, target) { return "Window snapped. Use Restore Last Arrangement to undo." }
-        return write.fullySubmitted ? "Window moved, but the app limited its size." : "Could not snap the window. Use Restore Last Arrangement if it moved."
+        if write.verified { return "Window snapped. Use Restore Last Arrangement to undo." }
+        return "The window did not reach its target frame. Use Restore Last Arrangement if it moved."
     }
 
     func captureWindows(on screen: NSScreen) -> [CaptureWindow] {
         guard isTrusted, hasWindowBridge, let primary = NSScreen.screens.first else { return [] }
         let screens = NSScreen.screens
-        let areas = screens.map { axFrame($0.frame, primaryTop: primary.frame.maxY) }
+        let displays = screens.map { ArrangementPlan.Display(frame: axFrame($0.frame, primaryTop: primary.frame.maxY), usableFrame: usableFrame(of: $0)) }
         guard let screenIndex = screens.firstIndex(of: screen) else { return [] }
         return managedWindows().compactMap { window in
-            let intersections = areas.map { intersectionArea($0, window.visible.bounds) }
-            guard intersections.indices.max(by: { intersections[$0] < intersections[$1] }) == screenIndex,
+            guard ArrangementPlan.displayIndex(for: window.visible.bounds, displays: displays) == screenIndex,
                   stillEligible(window), let bounds = frame(of: window.element) else { return nil }
             let appName = NSRunningApplication(processIdentifier: window.visible.pid)?.localizedName ?? "App"
             let title = attribute(window.element, kAXTitleAttribute as CFString) as? String ?? ""
@@ -120,66 +121,35 @@ final class WindowManager {
         guard preset.layout.capacity > 0 else { return "This layout has no usable regions." }
         let screens = NSScreen.screens
         guard let primary = screens.first else { return "No display is available." }
-        let screenFrames = screens.map { axFrame($0.frame, primaryTop: primary.frame.maxY) }
-        let cells = screens.map { preset.layout.cellFrames(in: axFrame($0.visibleFrame, primaryTop: primary.frame.maxY), gap: gap) }
+        let displays = screens.map { ArrangementPlan.Display(frame: axFrame($0.frame, primaryTop: primary.frame.maxY), usableFrame: usableFrame(of: $0)) }
         let windows = managedWindows()
         guard !windows.isEmpty else { return "No eligible windows on the current desktop." }
-
-        var grouped = Array(repeating: [ManagedWindow](), count: screens.count)
-        var skipped = 0
-        for window in windows {
-            let areas = screenFrames.map { intersectionArea($0, window.visible.bounds) }
-            guard let best = areas.indices.max(by: { areas[$0] < areas[$1] }), areas[best] > 0 else {
-                skipped += 1
-                continue
-            }
-            grouped[best].append(window)
-        }
-
+        let byID = Dictionary(uniqueKeysWithValues: windows.map { ($0.visible.id, $0) })
+        let plan = ArrangementPlan.make(layout: preset.layout, gap: gap,
+            windows: windows.map { ArrangementPlan.Window(id: $0.visible.id, frame: $0.visible.bounds) }, displays: displays)
         var nextOriginals: [OriginalWindow] = []
         var placed = 0
-        var limited = 0
         var failed = 0
-        var overflow = 0
-        for index in grouped.indices {
-            let ordered = grouped[index].sorted { $0.visible.order < $1.visible.order }
-            overflow += max(0, ordered.count - cells[index].count)
-            for (window, target) in zip(ordered, cells[index]) {
-                // Re-query immediately before every write; never act on a stale
-                // list captured before a Space switch, minimize, or app hide.
-                guard stillEligible(window), let before = frame(of: window.element) else {
-                    skipped += 1
-                    continue
-                }
-                if approximatelyEqual(before, target) {
-                    placed += 1
-                    continue
-                }
-                let saved = OriginalWindow(id: window.visible.id, pid: window.visible.pid,
-                                           element: window.element, frame: before)
-                let write = setFrame(target, on: window.element)
-                let actual = frame(of: window.element)
-                // Apps may apply an accepted AX write after the first readback.
-                // Keep its original frame even when this read still looks unchanged.
-                // A timeout is also uncertain: the receiving app may apply it later.
-                if write.mayHaveChanged || actual == nil || !approximatelyEqual(actual!, before) {
-                    nextOriginals.append(saved)
-                }
-                if let actual, approximatelyEqual(actual, target) {
-                    placed += 1
-                } else if write.fullySubmitted {
-                    limited += 1
-                } else {
-                    failed += 1
-                }
+        var skipped = plan.outsideDisplays.count
+        let overflow = plan.overflow.count
+        for placement in plan.placements {
+            guard let window = byID[placement.windowID], stillEligible(window), let before = frame(of: window.element) else {
+                skipped += 1; continue
             }
+            let result = setFrame(placement.frame, on: window.element)
+            // An unconfirmed AX write can still take effect. Preserve the original
+            // for every attempted adjustment, including a timeout or partial move.
+            if result.attempted {
+                nextOriginals.append(OriginalWindow(id: window.visible.id, pid: window.visible.pid,
+                                                   element: window.element, frame: before))
+            }
+            if result.verified { placed += 1 } else { failed += 1 }
         }
         if !nextOriginals.isEmpty { originals = nextOriginals }
         var details = ["Arranged \(placed) windows"]
-        if limited > 0 { details.append("\(limited) limited by app size or position constraints") }
         if overflow > 0 { details.append("\(overflow) beyond capacity, left unchanged") }
         if skipped > 0 { details.append("\(skipped) skipped after their state changed") }
-        if failed > 0 { details.append("\(failed) failed") }
+        if failed > 0 { details.append("\(failed) did not reach their target frame") }
         return details.joined(separator: "; ") + "."
     }
 
@@ -211,8 +181,8 @@ final class WindowManager {
                 remaining.append(saved)
                 continue
             }
-            _ = setFrame(saved.frame, on: saved.element)
-            if let actual = frame(of: saved.element), approximatelyEqual(actual, saved.frame) {
+            let result = setFrame(saved.frame, on: saved.element)
+            if result.verified {
                 restored += 1
             } else {
                 unavailable += 1
@@ -292,59 +262,23 @@ final class WindowManager {
     }
 
     private func frame(of element: AXUIElement) -> CGRect? {
-        guard let positionValue = attribute(element, kAXPositionAttribute as CFString),
-              let sizeValue = attribute(element, kAXSizeAttribute as CFString),
-              CFGetTypeID(positionValue) == AXValueGetTypeID(), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return nil }
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
-        return CGRect(origin: position, size: size)
+        AXWindowFrameAccess(element: element).readFrame()
     }
 
-    private func setFrame(_ frame: CGRect, on element: AXUIElement) -> (fullySubmitted: Bool, mayHaveChanged: Bool) {
-        var size = frame.size
-        var position = frame.origin
-        guard let sizeValue = AXValueCreate(.cgSize, &size), let positionValue = AXValueCreate(.cgPoint, &position) else { return (false, false) }
-        // Move first so expansion is not clipped by the old origin near an edge.
-        // An old large frame may clamp this first move; repeat after resizing.
-        let initialMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-        var resized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
-        var finalMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-        var responses = [initialMove, resized, finalMove]
-        // Some native windows reserve one point at the Dock boundary. When an
-        // exact-edge resize is ignored, retry inside that system boundary only;
-        // never introduce spacing between neighboring regions.
-        if let actual = self.frame(of: element), actual.height > frame.height + 2,
-           frame.height > 1, let primary = NSScreen.screens.first,
-           NSScreen.screens.contains(where: {
-               let area = axFrame($0.visibleFrame, primaryTop: primary.frame.maxY)
-               return abs(frame.maxY - area.maxY) < 1 && frame.minX >= area.minX && frame.maxX <= area.maxX
-           }) {
-            var edgeSize = CGSize(width: frame.width, height: frame.height - 1)
-            if let edgeValue = AXValueCreate(.cgSize, &edgeSize) {
-                resized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, edgeValue)
-                finalMove = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-                responses += [resized, finalMove]
-            }
+    private func setFrame(_ frame: CGRect, on element: AXUIElement) -> FrameApplication {
+        let access = AXWindowFrameAccess(element: element)
+        let result = access.withImmediateFrameChanges {
+            WindowFrameApplier.apply(frame, through: access,
+                                     usableFrames: NSScreen.screens.map { usableFrame(of: $0) })
         }
-        // The final size and move determine submission success. Any of the three
-        // writes may change the window, so partial/uncertain writes remain undoable.
-        let mayHaveChanged = responses.contains { $0 == .success || $0 == .cannotComplete }
-        return (resized == .success && finalMove == .success, mayHaveChanged)
+        if !result.verified {
+            frameLogger.error("Placement unverified. Target: \(String(describing: frame), privacy: .public); actual: \(String(describing: result.actual), privacy: .public)")
+        }
+        return result
     }
 
     private func axFrame(_ rect: CGRect, primaryTop: CGFloat) -> CGRect {
         CGRect(x: rect.minX, y: primaryTop - rect.maxY, width: rect.width, height: rect.height)
     }
 
-    private func intersectionArea(_ first: CGRect, _ second: CGRect) -> CGFloat {
-        let intersection = first.intersection(second)
-        return intersection.isNull ? 0 : intersection.width * intersection.height
-    }
-
-    private func approximatelyEqual(_ first: CGRect, _ second: CGRect) -> Bool {
-        abs(first.minX - second.minX) <= 2 && abs(first.minY - second.minY) <= 2
-            && abs(first.width - second.width) <= 2 && abs(first.height - second.height) <= 2
-    }
 }

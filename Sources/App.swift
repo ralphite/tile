@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateMenu(_ menu: NSMenu) {
         synchronizeSnapPreset()
         menu.removeAllItems()
-        let header = NSMenuItem(title: "Tile · Current Desktop", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Arrange Windows · Current Desktop", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         if !manager.isTrusted {
@@ -75,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for preset in store.configuration.presets {
             let title: String
             if case let .grid(rows, columns) = preset.layout {
-                let dimensions = "\(rows) rows × \(columns) columns"
+                let dimensions = "\(rows) \(rows == 1 ? "row" : "rows") × \(columns) \(columns == 1 ? "column" : "columns")"
                 title = preset.name == "\(rows) × \(columns)" ? dimensions : "\(preset.name)  ·  \(dimensions)"
             } else {
                 title = preset.name
@@ -87,8 +87,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let snapLayout = NSMenuItem(title: "Snap Layout: \(selectedPreset?.name ?? "None")", action: nil, keyEquivalent: "")
+        let undo = add("Restore Last Arrangement", action: #selector(undo), to: menu)
+        undo.isEnabled = manager.canUndo
+        menu.addItem(.separator())
+        add("New Layout…", action: #selector(newLayout), to: menu)
+        add("Edit Layouts…", action: #selector(configure), to: menu)
+        add("Save Current Windows as Layout…", action: #selector(captureLayout), to: menu)
+        menu.addItem(.separator())
+        let snapLayout = NSMenuItem(title: "Drag Snapping: \(snapper.isEnabled ? "On" : "Off")", action: nil, keyEquivalent: "")
         let choices = NSMenu(); choices.autoenablesItems = false
+        let toggle = add("Enable Drag Snapping", action: #selector(toggleSnapping), to: choices)
+        toggle.state = snapper.isEnabled ? .on : .off
+        choices.addItem(.separator())
+        let snapHeading = NSMenuItem(title: "Snap to Layout", action: nil, keyEquivalent: "")
+        snapHeading.isEnabled = false; choices.addItem(snapHeading)
         for preset in store.configuration.presets {
             let item = NSMenuItem(title: preset.name, action: #selector(selectSnapLayout(_:)), keyEquivalent: "")
             item.target = self; item.representedObject = preset.id
@@ -96,12 +108,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.image = preview(preset.layout); choices.addItem(item)
         }
         snapLayout.submenu = choices; menu.addItem(snapLayout)
-        add(snapper.isEnabled ? "Disable Drag Snapping" : "Enable Drag Snapping", action: #selector(toggleSnapping), to: menu)
-        menu.addItem(.separator())
-        let undo = add("Restore Last Arrangement", action: #selector(undo), to: menu)
-        undo.isEnabled = manager.canUndo
-        add("Save Current Windows as Layout…", action: #selector(captureLayout), to: menu)
-        add("Edit Layouts…", action: #selector(configure), to: menu)
         if let lastResult {
             menu.addItem(.separator())
             let item = NSMenuItem(title: lastResult, action: nil, keyEquivalent: "")
@@ -214,13 +220,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         capture?.window?.makeKeyAndOrderFront(nil)
     }
 
+    @objc private func newLayout() {
+        configure()
+        editor?.beginNewLayout()
+    }
+
     @objc private func configure() {
         if editor == nil {
-            editor = LayoutEditor(store: store, manager: manager, onArrangeMenu: { [weak self] sender in
-                guard let self else { return }
-                self.statusItem.menu?.popUp(positioning: nil,
-                    at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
-            }) { [weak self] in self?.editor = nil }
+            editor = LayoutEditor(store: store, manager: manager) { [weak self] in self?.editor = nil }
         }
         editor?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)

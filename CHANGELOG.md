@@ -1,8 +1,17 @@
 # Changelog
 
-## Unreleased — 0.3.0
+## 0.3.1 — 2026-10-28 (preview)
 
-Publication is on hold: basic grid arrangement is reported failing in real mixed-app use and must be fixed and verified first.
+- Fix accepted-but-incorrect Chrome window placement caused by Enhanced UI animations restoring stale geometry.
+- Share one verified window-frame primitive across arrange, snap, and restore.
+- Separate pure per-display arrangement planning from macOS window operations.
+- Add normal saved-grid tests for 1×2, 1×3, 2×3, 3×3, and 3×4, plus overflow and normal resize verification.
+- Add an obvious New Layout entry and direct Rows/Columns inputs; default to an equal 1×3 grid with an optional name.
+- Group drag-snapping controls into one submenu and separate editing from applying a layout.
+
+Verified the repair on one Codex and two Chrome windows, using actual frames and full-desktop screenshots. This preview retains experimental drag snapping; physical-mouse acceptance remains pending. See QA.md for precise coverage.
+
+## 0.3.0 development work
 
 - Add a selectable snap layout and an explicit drag-snapping mode in the menu.
 - Add drag-region overlays and release-to-fill behavior; exclude manual resize gestures.

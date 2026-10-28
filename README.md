@@ -18,7 +18,7 @@ Zero-gap grids · Custom rectangular regions · Saved layouts
 
 Tile lives in the menu bar. Pick a layout to arrange the normal windows on the current macOS desktop (Space). Start with a grid, define your own rectangles, or save the arrangement already on your screen.
 
-> **Development status:** Basic grid placement has been reported failing with real mixed-application windows. This takes precedence over earlier isolated Chrome test results. Binary releases are on hold until the normal placement workflow is fixed and verified. Drag snapping also remains unverified with a physical mouse. See [QA.md](QA.md).
+> **0.3.1 verification:** Fixed a real macOS Accessibility animation issue that made move and resize requests overwrite each other. Basic grid switching was checked on a mixed-app desktop using actual frame readback and full-desktop screenshots. Drag snapping remains experimental and has not passed physical-mouse acceptance. See [QA.md](QA.md) for the exact scope.
 
 ## What it does
 
@@ -28,7 +28,7 @@ Tile lives in the menu bar. Pick a layout to arrange the normal windows on the c
 | Flexible grids | Default 2×3, 3×3 and 3×4 layouts; rows and columns are editable. |
 | Custom regions | Draw a layout through grid coordinates: any rectangular regions, with empty space allowed and overlap rejected. |
 | Zero gaps | Adjacent regions share boundaries, without added padding. |
-| Drag snapping | Choose **Snap Layout**, enable **Drag Snapping**, drag a window into a region, and release to fill it. The intended behavior leaves manual resizing free. |
+| Drag snapping | Open **Drag Snapping**, choose a layout, and enable snapping, drag a window into a region, and release to fill it. The intended behavior leaves manual resizing free. |
 | Capture a layout | Select windows from a list, inspect the preview, and save their positions and sizes as a new preset. |
 | Restore | Undo the last arrangement or snap during the current app session. |
 
@@ -36,17 +36,23 @@ Layouts store **regions, not app assignments**. If a layout has six regions and 
 
 ## Quick start
 
-1. [Build from source](#build-from-source). A binary release is not available yet because normal grid placement is under repair.
+1. Download the Apple silicon preview from [Releases](https://github.com/ralphite/tile/releases), or [build from source](#build-from-source).
 2. Keep the resulting `Tile.app` in a stable location. It requires **macOS 13 or later** and builds for the current machine’s architecture.
 3. Open Tile. It runs in the menu bar and does not keep a Dock icon.
 4. Choose **Allow Accessibility…**, then enable Tile in **System Settings → Privacy & Security → Accessibility**.
-5. Click the grid icon and choose a layout. **Edit Layouts…** opens the editor; its **Arrange Windows…** button opens the same arrangement menu.
+5. Click the grid icon and choose a layout to arrange windows immediately. Choose **New Layout…** to create one, or **Edit Layouts…** to change an existing preset.
 
 The current binary is signed with a dedicated local development identity, **not an Apple Developer ID**, and is **not notarized**. macOS may block the download on first launch. Review [Apple’s guidance for opening apps safely](https://support.apple.com/en-us/102445), or build from source. Do not disable Gatekeeper globally.
 
+### Create a grid
+
+Choose **New Layout…**. **Equal Grid** is selected by default. Enter **Rows** and **Columns**, inspect the preview, and click **Create Layout**. For three equal columns, use **Rows: 1, Columns: 3**. A name is optional; it defaults to the dimensions. Saving does not move windows. Apply the saved layout from the Tile menu.
+
+<img src="docs/grid-editor.png" alt="Native Tile editor showing an equal grid with one row and three columns, a live preview, and Create Layout" width="680" />
+
 ### Create a custom layout
 
-Open **Edit Layouts… → + New Layout → Custom Regions**. Choose the base grid, select a numbered region, then set **Left**, **Top**, **Width**, and **Height** in grid cells. Left and Top start at zero.
+Open **New Layout… → Custom Regions**. Choose the base grid, select a numbered region, then set **Left**, **Top**, **Width**, and **Height** in grid cells. Left and Top start at zero.
 
 For a 12×12 base grid:
 
@@ -56,16 +62,16 @@ For a 12×12 base grid:
 | Upper-right third | 6 | 0 | 6 | 4 |
 | Lower-right two thirds | 6 | 4 | 6 | 8 |
 
-The preview updates while editing. Regions may touch but cannot overlap or extend beyond the base grid. **Save** updates the selected preset; **Save a Copy** creates another preset. Changing base-grid dimensions changes the proportions of the existing cell coordinates.
+The preview updates while editing. Regions may touch but cannot overlap or extend beyond the base grid. **Save Changes** updates the selected preset; **Save a Copy** creates another preset. Changing base-grid dimensions changes the proportions of the existing cell coordinates.
 
 ### Snap an individual window
 
-1. Choose a preset in **Snap Layout**. Selecting it does not rearrange other windows.
+1. Open the **Drag Snapping** submenu and choose a preset under **Snap to Layout**. Selecting it does not rearrange other windows.
 2. Choose **Enable Drag Snapping**.
 3. Move a window by its title bar. Regions appear during a detected move; the region under the pointer is highlighted.
 4. Release inside a region to fill it. Releasing over empty space leaves the window where it was dropped.
 
-Use **Disable Drag Snapping** to return to normal dragging. Snapping starts off when Tile launches. It uses mouse-event notifications while enabled, with no idle polling. Manual resizing is excluded from snapping. Physical-mouse acceptance testing for this feature remains pending in v0.3.0.
+Uncheck **Enable Drag Snapping** in the submenu to return to normal dragging. Snapping starts off when Tile launches. It uses mouse-event notifications while enabled, with no idle polling. Manual resizing is excluded from snapping. Physical-mouse acceptance testing for this feature remains pending.
 
 ### Save the arrangement on screen
 
@@ -123,12 +129,16 @@ Configuration version 2 supports equal grids, weighted recursive splits, and exp
 | --- | --- |
 | `Sources/App.swift` | Menu bar, commands, selected snap preset, app lifecycle |
 | `Sources/Layout.swift` | Layout model, validation, shared-edge geometry |
-| `Sources/WindowManager.swift` | Current-Space window matching, Accessibility writes, restore |
+| `Sources/ArrangementPlan.swift` | Pure window-to-region assignment, per-display capacity and overflow |
+| `Sources/WindowManager.swift` | Current-Space eligibility, orchestration, restore |
+| `Sources/WindowFrameApplier.swift` | One-window placement policy and actual-result verification |
+| `Sources/AXWindowFrameAccess.swift` | Thin AX reads/writes and scoped animation compatibility |
 | `Sources/SnapController.swift` | Drag events, region overlay, drop completion |
 | `Sources/CaptureLayoutController.swift` | Window selection and capture preview |
 | `Sources/WindowGeometry.swift` | Move/resize classification and capture conversion |
 | `Sources/LayoutEditor.swift` | Preset editor and live validation |
 | `Sources/LayoutStore.swift` | Persistence and migration backups |
+| `Tests/ArrangementTests.swift` | Normal grid plans, saved configurations, and placement-policy tests |
 | `Tests/LayoutTests.swift` | Geometry, capture, migration, and persistence checks |
 
 See [QA.md](QA.md) for verified behavior and pending checks, and [CHANGELOG.md](CHANGELOG.md) for release history. Bug reports should include the macOS version, display setup, layout, affected application, and expected versus actual behavior. Remove private window titles from screenshots before sharing.

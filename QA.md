@@ -2,11 +2,35 @@
 
 This record separates actual native UI checks from geometry tests and unfinished acceptance checks. Local evidence is kept under the ignored `qa-artifacts/` directory; it is not included in the public repository because it can contain local window information.
 
-## Current blocking user report — 2026-10-28
+## 0.3.1 core repair — 2026-10-28
 
-The user reported that the basic row/column presets do not work in the actual mixed-app desktop. A supplied screenshot shows one large left window and two smaller right-side windows separated by large blank areas. Earlier isolated Chrome tests do not establish correctness for this scenario. Reproduction and a verified fix are pending; release publication is on hold.
+Reproduced the user's real mixed-app failure: the 1×3 command placed only one of three windows correctly. Chrome's AX calls returned success, but a subsequent position write reverted the size set by the preceding write. The `AXEnhancedUserInterface` flag was enabled. This was a platform animation interaction, not a row/column configuration error.
 
-Priority: deterministic planning tests for 1×2, 1×3, 2×3, 3×3 and 3×4; a thin, verified single-window frame adapter; then actual mixed-app placement after 02:00 as requested. Menu and layout-creation redesign follows the core fix.
+The AX boundary now scopes immediate frame changes around each operation and attempts to restore the original Enhanced UI state in `defer`. Layout planning, window assignment, and single-window placement are separate modules. Arrangement, snap, and restore all use the same placement primitive.
+
+### Actual checks completed
+
+The same desktop contained one Codex window and two Chrome windows. Each command was checked by immediate AX readback, a diagnostic read after 0.5 seconds, and a full-desktop screenshot. The temporary per-write traces and delayed QA reads were then removed from the product.
+
+| Layout | Actual result |
+| --- | --- |
+| 1×3 | Three adjacent full-height windows at x = 0, 1280, 2560; width = 1280, height = 2051. |
+| 1×2 | First two windows at x = 0, 1920; width = 1920, height = 2051. Third window left unchanged as required. |
+| 2×3 | Three current windows filled the first row at x = 0, 1280, 2560; size = 1280×1026. |
+| 3×3 | Three current windows filled the first row; size = 1280×684. |
+| 3×4 | Three current windows filled the first three cells; size = 960×684. |
+
+All y coordinates were 30. Full-height windows reserve one point at the Dock boundary; internal boundaries have zero gaps. These checks verify the three-window mixed-app case, not filled 6/9/12-window grids. Full-grid cell coordinates and assignments are covered by the normal-path unit suite.
+
+Local evidence: `diagnostic-1x3.png`, `fixed-1x3-desktop.png`, `fixed-1x2-desktop.png`, `fixed-2x3-desktop.png`, `fixed-3x3-desktop.png`. These private desktop images are excluded from Git and release assets.
+
+### Verification policy
+
+Yadong requested that repeated desktop-wide tests stop after validating the small real window interface. The old scheduled nightly grid sequence was paused. Future layout-only changes use pure planning tests. Repeat native placement checks only when that interface changes or a new real failure supplies a reason; do not move working windows for a redundant test matrix. Screenshots are developer QA evidence, not product behavior.
+
+### Editor acceptance
+
+On Desktop 2, opened New Layout in the updated running app, confirmed Equal Grid / Rows 1 / Columns 3 and a three-column preview, saved a test preset, and read `layouts.json` to verify the exact grid values. Removed only that test preset through the editor. Existing presets remained intact. The editor screenshot in `docs/grid-editor.png` contains no desktop or user document content. No arrangement command was executed during this UI check.
 
 ## Environment
 
@@ -63,13 +87,12 @@ Local evidence: `regions-zero-gap-fixed.json`, `regions-editor.png`.
 - Physical-mouse drag preview, dropping into different regions, dropping into blank space, disabling snapping, and resize exclusion.
 - Gatekeeper installation on a clean Mac, Intel runtime behavior, and notarization (not provided).
 
-## Next native acceptance pass
+## Deferred native acceptance
 
 1. Use only task-created windows and preserve the user's existing windows.
 2. Enable snapping and physically drag a window to two differently sized regions. Check actual bounds and restore.
 3. Resize without snapping, disable the mode, and verify a free move.
 4. Capture a non-overlapping selection, restart, and apply the saved preset.
-5. Continuously choose 2×3, 3×3 and 3×4 with enough test windows; inspect each result.
 6. Close only task-created windows. Leave Tile running for the user, with no test overlay or unintended test mode.
 
 If the available tool cannot deliver physical/global mouse events, record that limitation and finish the other checks; do not manufacture a passing result or repeatedly replay the same ineffective gesture.
